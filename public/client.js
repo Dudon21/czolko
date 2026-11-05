@@ -6,6 +6,7 @@ const CAMERA_KEY = `czolko-camera${PROFILE}`;
 const WORDS_PER_PLAYER = 10;
 const BRUSH_COLORS = ["#111111", "#e63946", "#f77f00", "#ffd60a", "#2a9d8f", "#4cc9f0", "#3a0ca3", "#f15bb5", "#8d5524", "#f1c27d"];
 const BRUSH_SIZES = [3, 7, 14];
+const SHAPE_TOOLS = ["rect", "square", "triangle", "circle"];
 
 const $ = (id) => document.getElementById(id);
 
@@ -295,6 +296,8 @@ const avatarEditor = (() => {
   let size = BRUSH_SIZES[1];
   let tool = "brush";
   let drawing = false;
+  let shapeStart = null;
+  let snapshot = null;
   let last = null;
   let touched = false;
   let uploadTimer = null;
@@ -383,12 +386,41 @@ const avatarEditor = (() => {
       button.classList.toggle("selected", tool !== "eraser" && button.dataset.color === color);
     }
     for (const button of $("avatar-sizes").children) {
-      button.classList.toggle("selected", tool === "brush" && Number(button.dataset.size) === size);
+      button.classList.toggle("selected", tool !== "fill" && Number(button.dataset.size) === size);
     }
-    $("btn-brush").classList.toggle("selected", tool === "brush");
-    $("btn-eraser").classList.toggle("selected", tool === "eraser");
-    $("btn-fill").classList.toggle("selected", tool === "fill");
+    for (const button of $("avatar-tool-buttons").children) {
+      button.classList.toggle("selected", button.dataset.tool === tool);
+    }
     canvas.classList.toggle("fill-mode", tool === "fill");
+  }
+
+  function isShape() {
+    return SHAPE_TOOLS.includes(tool);
+  }
+
+  function drawShape(from, to) {
+    let width = to.x - from.x;
+    let height = to.y - from.y;
+    if (tool === "square") {
+      const side = Math.max(Math.abs(width), Math.abs(height));
+      width = Math.sign(width || 1) * side;
+      height = Math.sign(height || 1) * side;
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = size;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    if (tool === "rect" || tool === "square") {
+      ctx.rect(from.x, from.y, width, height);
+    } else if (tool === "triangle") {
+      ctx.moveTo(from.x + width / 2, from.y);
+      ctx.lineTo(from.x + width, from.y + height);
+      ctx.lineTo(from.x, from.y + height);
+      ctx.closePath();
+    } else if (tool === "circle") {
+      ctx.ellipse(from.x + width / 2, from.y + height / 2, Math.abs(width / 2), Math.abs(height / 2), 0, 0, Math.PI * 2);
+    }
+    ctx.stroke();
   }
 
   function setTool(next) {
@@ -402,7 +434,7 @@ const avatarEditor = (() => {
     button.dataset.color = c;
     button.onclick = () => {
       color = c;
-      setTool(tool === "fill" ? "fill" : "brush");
+      setTool(tool === "eraser" ? "brush" : tool);
     };
     $("avatar-colors").appendChild(button);
   }
@@ -415,14 +447,14 @@ const avatarEditor = (() => {
     button.appendChild(dot);
     button.onclick = () => {
       size = s;
-      setTool(tool === "eraser" ? "eraser" : "brush");
+      setTool(tool === "fill" ? "brush" : tool);
     };
     $("avatar-sizes").appendChild(button);
   }
 
-  $("btn-brush").onclick = () => setTool("brush");
-  $("btn-eraser").onclick = () => setTool("eraser");
-  $("btn-fill").onclick = () => setTool("fill");
+  for (const button of $("avatar-tool-buttons").children) {
+    button.onclick = () => setTool(button.dataset.tool);
+  }
 
   $("btn-clear-avatar").onclick = () => {
     touched = true;
@@ -441,12 +473,22 @@ const avatarEditor = (() => {
     drawing = true;
     canvas.setPointerCapture(event.pointerId);
     last = pointFrom(event);
+    if (isShape()) {
+      shapeStart = last;
+      snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      return;
+    }
     stroke(last, last);
   });
 
   canvas.addEventListener("pointermove", (event) => {
     if (!drawing) return;
     const point = pointFrom(event);
+    if (isShape()) {
+      ctx.putImageData(snapshot, 0, 0);
+      drawShape(shapeStart, point);
+      return;
+    }
     stroke(last, point);
     last = point;
   });

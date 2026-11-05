@@ -1194,3 +1194,18 @@ input.invalid {
   color: var(--green);
   font-weight: 800;
 }
+
+.tool-buttons {
+  gap: 6px;
+}
+
+.tool-buttons .btn {
+  min-width: 40px;
+  padding: 4px 8px;
+}
+
+.tool-buttons .btn[title] {
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 6px 10px;
+}
