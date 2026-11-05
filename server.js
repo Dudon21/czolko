@@ -296,6 +296,11 @@ io.on("connection", (socket) => {
     room.adminRerollWord(player, playerId);
   });
 
+  handle(socket, "extendRoom", () => {
+    const { room, player } = currentSession(socket);
+    room.extendLifetime(player);
+  });
+
   handle(socket, "admin:endGame", () => {
     const { room, player } = currentSession(socket);
     room.adminEndGame(player);

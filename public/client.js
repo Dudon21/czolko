@@ -9,6 +9,7 @@ const BRUSH_SIZES = [3, 7, 14];
 const SHAPE_TOOLS = ["rect", "square", "triangle", "circle"];
 const UNDO_LIMIT = 30;
 const ROLL_TIME_MS = 5000;
+const ROOM_WARNING_SECONDS = 600;
 const SECRET_DECOYS = ["???", "?!?", "¿??", "?¿?", "??¿", "!??", "??!", "???"];
 
 const $ = (id) => document.getElementById(id);
@@ -45,6 +46,7 @@ const store = {
   avatars: new Map(),
   voteDeadline: 0,
   turnDeadline: 0,
+  roomDeadline: 0,
   decoys: [],
   decoysLoading: false,
   selfInGrid: storage.get(`czolko-layout${PROFILE}`) !== "corner",
@@ -1033,9 +1035,31 @@ function updateTurnTimers() {
   }
 }
 
+function formatDuration(totalSeconds) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return hours ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
+}
+
+function updateRoomTimers() {
+  const s = store.state;
+  const active = Boolean(s && store.roomDeadline && !phone.mode);
+  const seconds = active ? secondsLeft(store.roomDeadline) : 0;
+  for (const node of document.querySelectorAll(".room-timer")) node.textContent = formatDuration(seconds);
+  const isHost = active && s.me.canManage;
+  show($("room-timer-lobby"), isHost && s.phase === "lobby");
+  show($("expiry-warning"), active && seconds <= ROOM_WARNING_SECONDS);
+  show($("expiry-warning").querySelector(".btn-extend"), isHost);
+}
+
+for (const button of document.querySelectorAll(".btn-extend")) button.onclick = () => act("extendRoom");
+
 setInterval(() => {
   if (store.voteDeadline) updateVoteTimers();
   updateTurnTimers();
+  updateRoomTimers();
 }, 250);
 
 function renderGame(s) {
@@ -1180,6 +1204,7 @@ $("btn-clear-notes").onclick = () => ask("Wyczyścić notatki?", clearNotes);
 function render() {
   const s = store.state;
   if (!s || phone.mode) return;
+  store.roomDeadline = performance.now() + s.roomRemainingMs;
   if (s.phase === "lobby") {
     showScreen("lobby");
     renderLobby(s);
@@ -1204,6 +1229,7 @@ function goHome(message) {
   store.state = null;
   store.avatars.clear();
   store.voteDeadline = 0;
+  store.roomDeadline = 0;
   video.disconnect();
   avatarEditor.reset();
   wordsForm.reset();

@@ -12,6 +12,10 @@ const MIN_POINT_LIMIT = 1;
 const MAX_POINT_LIMIT = 100;
 const MAX_AVATAR_LENGTH = 200000;
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000;
+const ROOM_LIFETIME_MS = 2 * 60 * 60 * 1000;
+const ROOM_EXTEND_MS = 60 * 60 * 1000;
+const ROOM_MAX_REMAINING_MS = 6 * 60 * 60 * 1000;
+const ROOM_WARNING_MS = 10 * 60 * 1000;
 const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const CAMERA_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const CAMERA_CODE_LENGTH = 6;
@@ -59,6 +63,9 @@ class Room {
     this.endReason = null;
     this.wordSeq = 0;
     this.cleanupTimer = null;
+    this.expiresAt = Date.now() + ROOM_LIFETIME_MS;
+    this.expiryTimer = null;
+    this.warningTimer = null;
   }
 
   emit(name, ...args) {
@@ -478,6 +485,18 @@ class Room {
     this.changed();
   }
 
+  extendLifetime(player) {
+    this.requireManager(player);
+    const now = Date.now();
+    const next = Math.min(this.expiresAt + ROOM_EXTEND_MS, now + ROOM_MAX_REMAINING_MS);
+    if (next <= this.expiresAt) fail("Pokój ma już maksymalny zapas czasu (6 godzin)");
+    this.expiresAt = next;
+    this.hub.scheduleExpiry(this);
+    const minutes = Math.round((next - now) / 60000);
+    this.announce(`Host przedłuża pokój: zostało ${Math.floor(minutes / 60)} h ${minutes % 60} min`);
+    this.changed();
+  }
+
   adminEndGame(admin) {
     this.requireAdmin(admin);
     this.requirePhase("game");
@@ -517,6 +536,7 @@ class Room {
       activeId: this.activeId,
       turnRemainingMs: this.turnEndsAt ? Math.max(0, this.turnEndsAt - Date.now()) : null,
       endReason: this.endReason,
+      roomRemainingMs: Math.max(0, this.expiresAt - Date.now()),
       poolSize: this.pool.length,
       me: {
         id: viewer.id,
@@ -560,6 +580,7 @@ class Registry extends EventEmitter {
     } while (this.rooms.has(code));
     const room = new Room(code, this);
     this.rooms.set(code, room);
+    this.scheduleExpiry(room);
     return room;
   }
 
@@ -596,6 +617,26 @@ class Registry extends EventEmitter {
     return code;
   }
 
+  scheduleExpiry(room) {
+    clearTimeout(room.expiryTimer);
+    clearTimeout(room.warningTimer);
+    const remaining = room.expiresAt - Date.now();
+    room.expiryTimer = setTimeout(() => this.expireRoom(room), Math.max(0, remaining));
+    if (remaining > ROOM_WARNING_MS) {
+      room.warningTimer = setTimeout(() => {
+        room.announce("Pokój wygaśnie za 10 minut. Host może go przedłużyć");
+        room.changed();
+      }, remaining - ROOM_WARNING_MS);
+    }
+  }
+
+  expireRoom(room) {
+    if (this.rooms.get(room.code) !== room) return;
+    for (const player of room.players) this.emit("removed", room, player, "Pokój wygasł. Załóżcie nowy");
+    room.players = [];
+    this.deleteRoom(room);
+  }
+
   updatePresence(room) {
     clearTimeout(room.cleanupTimer);
     room.cleanupTimer = null;
@@ -607,6 +648,8 @@ class Registry extends EventEmitter {
 
   deleteRoom(room) {
     clearTimeout(room.cleanupTimer);
+    clearTimeout(room.expiryTimer);
+    clearTimeout(room.warningTimer);
     room.clearVote();
     room.stopTurnTimer();
     this.rooms.delete(room.code);
