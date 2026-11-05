@@ -76,6 +76,11 @@ const CATEGORIES = {
 };
 
 const ALL_WORDS = [...new Set(Object.values(CATEGORIES).flat())];
+const LISTED = new Set(ALL_WORDS.map((word) => word.toLocaleLowerCase("pl")));
+
+function isListedWord(text) {
+  return LISTED.has(String(text).trim().toLocaleLowerCase("pl"));
+}
 
 function randomWords(count, exclude = []) {
   const amount = Math.max(0, Math.min(10, Number(count) || 0));
@@ -93,4 +98,4 @@ function randomWords(count, exclude = []) {
   return picked;
 }
 
-module.exports = { CATEGORIES, randomWords };
+module.exports = { CATEGORIES, randomWords, isListedWord };

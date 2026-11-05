@@ -72,9 +72,23 @@
       <button id="btn-leave" class="btn btn-small btn-red">Wyjdź</button>
     </header>
     <div class="lobby-grid">
-      <div class="card">
-        <h2>Gracze</h2>
-        <div id="lobby-players" class="lobby-players"></div>
+      <div class="lobby-col">
+        <div class="card">
+          <h2>Gracze</h2>
+          <div id="lobby-players" class="lobby-players"></div>
+        </div>
+
+        <div class="card">
+          <h2>Ustawienia</h2>
+          <div class="row">
+            <label class="field field-inline">
+              <span>Limit punktów</span>
+              <input id="limit-input" type="number" min="1" max="100">
+            </label>
+            <button id="btn-set-limit" class="btn btn-small">Ustaw</button>
+          </div>
+          <p id="start-hint" class="status"></p>
+        </div>
       </div>
 
       <div class="card">
@@ -102,7 +116,7 @@
           </div>
         </div>
         <div id="camera-box" class="camera-box hidden">
-          <button id="btn-camera" class="btn btn-small btn-camera">Włącz kamerkę</button>
+          <button id="btn-camera" class="btn btn-big btn-wide btn-camera">📷 Włącz kamerkę</button>
           <p class="status">Opcjonalnie. Bez kamerki inni widzą twój rysunek. Dźwięk zostaje na Discordzie.</p>
           <div id="camera-preview" class="media-slot camera-preview hidden" data-video="1"></div>
           <div class="phone-info">
@@ -126,18 +140,6 @@
         </div>
         <p id="words-status" class="status"></p>
       </div>
-
-      <div class="card">
-        <h2>Ustawienia</h2>
-        <div class="row">
-          <label class="field field-inline">
-            <span>Limit punktów</span>
-            <input id="limit-input" type="number" min="1" max="100">
-          </label>
-          <button id="btn-set-limit" class="btn btn-small">Ustaw</button>
-        </div>
-        <p id="start-hint" class="status"></p>
-      </div>
     </div>
   </section>
 
@@ -159,7 +161,7 @@
 
     <div id="camera-panel" class="card camera-panel hidden">
       <h2>Kamerka</h2>
-      <button id="btn-camera-panel" class="btn btn-small btn-camera">Włącz kamerkę</button>
+      <button id="btn-camera-panel" class="btn btn-big btn-wide btn-camera">📷 Włącz kamerkę</button>
       <div class="phone-info">
         <p>Albo telefon jako kamerka: zeskanuj kod QR.</p>
         <img class="phone-qr" alt="Kod QR kamerki">

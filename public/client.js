@@ -295,7 +295,7 @@ function renderCameraButtons() {
   show($("btn-phone-mode"), video.available);
   show($("camera-preview"), video.cameraOn || Boolean(me && me.hasPhone));
   for (const id of ["btn-camera", "btn-camera-panel"]) {
-    $(id).textContent = video.cameraOn ? "Wyłącz kamerkę" : "Włącz kamerkę";
+    $(id).textContent = video.cameraOn ? "📷 Wyłącz kamerkę" : "📷 Włącz kamerkę";
     $(id).classList.toggle("selected", video.cameraOn);
   }
   $("btn-camera-game").classList.toggle("selected", video.cameraOn || Boolean(me && me.hasPhone));

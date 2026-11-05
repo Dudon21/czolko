@@ -1,5 +1,8 @@
 const crypto = require("crypto");
 const { EventEmitter } = require("events");
+const { isListedWord } = require("./words");
+
+const CUSTOM_WORD_CHANCE = 0.8;
 
 const WORDS_PER_PLAYER = 10;
 const MAX_WORD_LENGTH = 40;
@@ -232,7 +235,7 @@ class Room {
     this.clearVote();
     this.pool = [];
     for (const p of this.players) {
-      for (const text of p.words) this.pool.push({ id: ++this.wordSeq, text, authorId: p.id });
+      for (const text of p.words) this.pool.push({ id: ++this.wordSeq, text, authorId: p.id, custom: !isListedWord(text) });
       p.score = 0;
       p.word = null;
     }
@@ -279,7 +282,11 @@ class Room {
       player.word = null;
       return false;
     }
-    const index = candidates[crypto.randomInt(candidates.length)];
+    const custom = candidates.filter((index) => this.pool[index].custom);
+    const listed = candidates.filter((index) => !this.pool[index].custom);
+    let group = candidates;
+    if (custom.length && listed.length) group = crypto.randomInt(1000) < CUSTOM_WORD_CHANCE * 1000 ? custom : listed;
+    const index = group[crypto.randomInt(group.length)];
     player.word = this.pool.splice(index, 1)[0];
     return true;
   }
