@@ -52,6 +52,11 @@
             </div>
           </div>
         </div>
+        <div id="camera-box" class="camera-box hidden">
+          <button id="btn-camera" class="btn btn-small btn-camera">Włącz kamerkę</button>
+          <p class="status">Opcjonalnie. Bez kamerki inni widzą twój rysunek. Dźwięk zostaje na Discordzie.</p>
+          <div id="camera-preview" class="media-slot camera-preview hidden" data-video="1"></div>
+        </div>
       </div>
 
       <div class="card">
@@ -89,7 +94,7 @@
 
   <section id="screen-game" class="screen hidden">
     <div id="my-tile" class="my-tile">
-      <div class="media-slot" data-slot="me"></div>
+      <div class="media-slot" data-video="1"></div>
       <div class="my-info">
         <div class="my-nick"></div>
         <div class="my-row">
@@ -97,6 +102,7 @@
           <span class="my-word">???</span>
         </div>
       </div>
+      <button id="btn-camera-game" class="btn btn-small btn-camera hidden" title="Kamerka">📷</button>
       <span class="turn-badge my-turn-badge hidden">Czółko</span>
     </div>
 
@@ -188,6 +194,7 @@
   <div id="toasts" class="toasts"></div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/vendor/livekit-client.js"></script>
   <script src="client.js"></script>
 </body>
 </html>

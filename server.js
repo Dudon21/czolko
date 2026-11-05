@@ -3,15 +3,47 @@ const http = require("http");
 const crypto = require("crypto");
 const express = require("express");
 const { Server } = require("socket.io");
+const { AccessToken, RoomServiceClient } = require("livekit-server-sdk");
 const { Registry, GameError, fail } = require("./game");
 const { randomWords } = require("./words");
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const MAX_ADMIN_ATTEMPTS = 5;
+const LIVEKIT_URL = process.env.LIVEKIT_URL || "";
+const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || "";
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || "";
+const VIDEO_ENABLED = Boolean(LIVEKIT_URL && LIVEKIT_API_KEY && LIVEKIT_API_SECRET);
+const livekitRooms = VIDEO_ENABLED
+  ? new RoomServiceClient(LIVEKIT_URL.replace(/^ws/, "http"), LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
+  : null;
 
 const app = express();
 app.use(express.static(path.join(__dirname, "public")));
+app.get("/vendor/livekit-client.js", (req, res) => {
+  res.sendFile(path.join(__dirname, "node_modules", "livekit-client", "dist", "livekit-client.umd.js"));
+});
+app.get("/config.json", (req, res) => res.json({ video: VIDEO_ENABLED }));
+
+function videoRoomName(room) {
+  return `czolko-${room.code}`;
+}
+
+async function createVideoToken(room, player) {
+  const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+    identity: player.id,
+    name: player.nick,
+    ttl: "8h"
+  });
+  token.addGrant({
+    roomJoin: true,
+    room: videoRoomName(room),
+    canPublish: true,
+    canSubscribe: true,
+    canPublishData: false
+  });
+  return token.toJwt();
+}
 
 const server = http.createServer(app);
 const io = new Server(server, { maxHttpBufferSize: 512 * 1024 });
@@ -36,6 +68,7 @@ registry.on("avatar", (room, player) => sendToRoom(room, "avatar", { id: player.
 registry.on("wordChanged", (room, player, reason, text) => sendToPlayer(player, "wordChanged", { reason, text }));
 
 registry.on("removed", (room, player, reason) => {
+  if (livekitRooms) livekitRooms.removeParticipant(videoRoomName(room), player.id).catch(() => {});
   const socket = player.socketId && io.sockets.sockets.get(player.socketId);
   if (!socket) return;
   socket.data.session = null;
@@ -88,17 +121,17 @@ function handle(socket, event, handler) {
       payload = {};
     }
     const reply = typeof ack === "function" ? ack : () => {};
-    try {
-      const result = handler(payload && typeof payload === "object" ? payload : {});
-      reply({ ok: true, ...(result || {}) });
-    } catch (error) {
-      if (error instanceof GameError) {
-        reply({ ok: false, error: error.message });
-      } else {
-        console.error(`Błąd w "${event}":`, error);
-        reply({ ok: false, error: "Błąd serwera" });
-      }
-    }
+    Promise.resolve()
+      .then(() => handler(payload && typeof payload === "object" ? payload : {}))
+      .then((result) => reply({ ok: true, ...(result || {}) }))
+      .catch((error) => {
+        if (error instanceof GameError) {
+          reply({ ok: false, error: error.message });
+        } else {
+          console.error(`Błąd w "${event}":`, error);
+          reply({ ok: false, error: "Błąd serwera" });
+        }
+      });
   });
 }
 
@@ -166,6 +199,12 @@ io.on("connection", (socket) => {
     room.grantAdmin(player);
   });
 
+  handle(socket, "videoToken", async () => {
+    const { room, player } = currentSession(socket);
+    if (!VIDEO_ENABLED) fail("Kamerki nie są skonfigurowane na serwerze");
+    return { url: LIVEKIT_URL, token: await createVideoToken(room, player) };
+  });
+
   handle(socket, "startGame", () => {
     const { room, player } = currentSession(socket);
     room.start(player);
@@ -227,4 +266,5 @@ io.on("connection", (socket) => {
 server.listen(PORT, () => {
   console.log(`Czółko działa na http://localhost:${PORT}`);
   if (!ADMIN_PASSWORD) console.log("Uwaga: brak ADMIN_PASSWORD, logowanie admina jest wyłączone");
+  if (!VIDEO_ENABLED) console.log("Uwaga: brak ustawień LIVEKIT_*, kamerki są wyłączone");
 });

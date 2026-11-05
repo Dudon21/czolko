@@ -2,6 +2,7 @@ const PROFILE = new URLSearchParams(location.search).get("p") || "";
 const TOKEN_KEY = `czolko-token${PROFILE}`;
 const NICK_KEY = `czolko-nick${PROFILE}`;
 const NOTES_KEY = `czolko-notes${PROFILE}`;
+const CAMERA_KEY = `czolko-camera${PROFILE}`;
 const WORDS_PER_PLAYER = 10;
 const BRUSH_COLORS = ["#111111", "#e63946", "#f77f00", "#ffd60a", "#2a9d8f", "#4cc9f0", "#3a0ca3", "#f15bb5", "#8d5524", "#f1c27d"];
 const BRUSH_SIZES = [3, 7, 14];
@@ -110,6 +111,34 @@ const media = {
       }
       fallback.textContent = player.nick.charAt(0).toUpperCase();
     }
+    media.updateVideo(slot, player);
+  },
+
+  updateVideo(slot, player) {
+    const track = slot.dataset.video ? video.trackFor(player.id) : null;
+    let videoEl = slot.querySelector("video");
+    if (!track) {
+      if (videoEl) {
+        if (videoEl.currentTrack) videoEl.currentTrack.detach(videoEl);
+        videoEl.remove();
+      }
+      slot.classList.remove("has-video");
+      return;
+    }
+    if (!videoEl) {
+      videoEl = el("video");
+      videoEl.muted = true;
+      videoEl.autoplay = true;
+      videoEl.playsInline = true;
+      slot.appendChild(videoEl);
+    }
+    if (videoEl.currentTrack !== track) {
+      if (videoEl.currentTrack) videoEl.currentTrack.detach(videoEl);
+      track.attach(videoEl);
+      videoEl.currentTrack = track;
+    }
+    videoEl.classList.toggle("mirror", Boolean(store.state) && player.id === store.state.me.id);
+    slot.classList.add("has-video");
   },
 
   refreshAll() {
@@ -119,6 +148,126 @@ const media = {
     }
   }
 };
+
+const video = {
+  lib: window.LivekitClient || null,
+  available: false,
+  room: null,
+  connecting: null,
+  cameraOn: false,
+  autoStartTried: false,
+
+  wantsCamera() {
+    return storage.get(CAMERA_KEY) === "1";
+  },
+
+  ensureConnected() {
+    if (!this.available) return Promise.resolve(null);
+    if (this.room) return Promise.resolve(this.room);
+    if (!this.connecting) this.connecting = this.open().finally(() => { this.connecting = null; });
+    return this.connecting;
+  },
+
+  async open() {
+    const response = await call("videoToken");
+    if (!response.ok) {
+      toast(response.error, true);
+      return null;
+    }
+    const { Room, RoomEvent } = this.lib;
+    const room = new Room({ adaptiveStream: true, dynacast: true });
+    const refresh = () => media.refreshAll();
+    for (const event of [
+      RoomEvent.TrackSubscribed,
+      RoomEvent.TrackUnsubscribed,
+      RoomEvent.TrackMuted,
+      RoomEvent.TrackUnmuted,
+      RoomEvent.LocalTrackPublished,
+      RoomEvent.LocalTrackUnpublished,
+      RoomEvent.ParticipantDisconnected
+    ]) room.on(event, refresh);
+    room.on(RoomEvent.Disconnected, () => {
+      if (this.room !== room) return;
+      this.room = null;
+      this.cameraOn = false;
+      renderCameraButtons();
+      refresh();
+    });
+    try {
+      await room.connect(response.url, response.token);
+    } catch {
+      toast("Nie udało się połączyć z serwerem wideo", true);
+      return null;
+    }
+    this.room = room;
+    refresh();
+    return room;
+  },
+
+  trackFor(playerId) {
+    if (!this.room) return null;
+    const local = this.room.localParticipant;
+    const participant = local.identity === playerId ? local : this.room.remoteParticipants.get(playerId);
+    const publication = participant && participant.getTrackPublication(this.lib.Track.Source.Camera);
+    return publication && publication.track && !publication.isMuted ? publication.track : null;
+  },
+
+  async setCamera(on) {
+    const room = await this.ensureConnected();
+    if (!room) return;
+    try {
+      await room.localParticipant.setCameraEnabled(on, { resolution: this.lib.VideoPresets.h360.resolution });
+      this.cameraOn = on;
+      storage.set(CAMERA_KEY, on ? "1" : "0");
+    } catch {
+      this.cameraOn = false;
+      toast("Brak dostępu do kamerki. Sprawdź uprawnienia przeglądarki", true);
+    }
+    renderCameraButtons();
+    media.refreshAll();
+  },
+
+  sync(s) {
+    if (!this.available) return;
+    if (s.phase === "game") this.ensureConnected();
+    if (this.wantsCamera() && !this.cameraOn && !this.autoStartTried) {
+      this.autoStartTried = true;
+      this.setCamera(true);
+    }
+  },
+
+  disconnect() {
+    const room = this.room;
+    this.room = null;
+    this.cameraOn = false;
+    this.autoStartTried = false;
+    if (room) room.disconnect();
+    renderCameraButtons();
+  }
+};
+
+function renderCameraButtons() {
+  show($("camera-box"), video.available);
+  show($("btn-camera-game"), video.available);
+  show($("camera-preview"), video.cameraOn);
+  $("btn-camera").textContent = video.cameraOn ? "Wyłącz kamerkę" : "Włącz kamerkę";
+  $("btn-camera").classList.toggle("selected", video.cameraOn);
+  $("btn-camera-game").classList.toggle("selected", video.cameraOn);
+  $("btn-camera-game").title = video.cameraOn ? "Wyłącz kamerkę" : "Włącz kamerkę";
+}
+
+for (const id of ["btn-camera", "btn-camera-game"]) {
+  $(id).onclick = () => video.setCamera(!video.cameraOn);
+}
+
+fetch("/config.json")
+  .then((res) => res.json())
+  .then((config) => {
+    video.available = Boolean(config.video && video.lib);
+    renderCameraButtons();
+    if (store.state) video.sync(store.state);
+  })
+  .catch(() => {});
 
 function bindSlot(slot, player) {
   slot.dataset.playerId = player.id;
@@ -349,6 +498,8 @@ function renderLobby(s) {
   $("lobby-code").textContent = s.code;
   avatarEditor.loadFrom(store.avatars.get(s.me.id));
   wordsForm.sync();
+  const me = findPlayer(s.me.id);
+  if (me) bindSlot($("camera-preview"), me);
 
   const list = $("lobby-players");
   list.replaceChildren();
@@ -416,6 +567,7 @@ function createTile() {
   top.append(crown, badge);
   const frame = el("div", "ptile-frame");
   const slot = el("div", "media-slot");
+  slot.dataset.video = "1";
   const score = el("div", "score-badge");
   const nick = el("div", "nick-bar");
   frame.append(slot, score, nick);
@@ -634,6 +786,7 @@ function render() {
   }
   if (s.phase !== "game") store.voteDeadline = 0;
   renderAdminPanel(s);
+  video.sync(s);
 }
 
 function goHome(message) {
@@ -641,6 +794,7 @@ function goHome(message) {
   store.state = null;
   store.avatars.clear();
   store.voteDeadline = 0;
+  video.disconnect();
   avatarEditor.reset();
   wordsForm.reset();
   for (const tile of tiles.values()) tile.root.remove();
