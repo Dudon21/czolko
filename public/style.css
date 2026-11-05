@@ -1459,3 +1459,17 @@ input.invalid {
     animation: none;
   }
 }
+
+.my-tile.compact .media-slot,
+.my-tile.compact .my-word {
+  display: none;
+}
+
+.my-tile.compact {
+  padding-left: 12px;
+}
+
+.ptile.me .word-label {
+  letter-spacing: 4px;
+  border-style: dashed;
+}

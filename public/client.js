@@ -43,6 +43,7 @@ const store = {
   avatars: new Map(),
   voteDeadline: 0,
   turnDeadline: 0,
+  selfInGrid: storage.get(`czolko-layout${PROFILE}`) !== "corner",
   replaced: false
 };
 
@@ -771,8 +772,9 @@ function updateTile(tile, p, s, leaders) {
   show(tile.badge, s.activeId === p.id);
   tile.score.textContent = p.score;
   tile.nick.textContent = p.connected ? p.nick : `${p.nick} (offline)`;
+  tile.root.classList.toggle("me", p.id === s.me.id);
   const previousWord = tile.word.textContent;
-  const nextWord = p.word || "—";
+  const nextWord = p.id === s.me.id ? "???" : p.word || "—";
   tile.word.textContent = nextWord;
   if (previousWord && previousWord !== "—" && previousWord !== nextWord) motion.restart(tile.word, "word-new");
   bindSlot(tile.slot, p);
@@ -822,10 +824,10 @@ const motion = {
       if (!previous.has(p.id)) continue;
       const delta = p.score - previous.get(p.id);
       if (!delta) continue;
-      const mine = p.id === s.me.id;
       const tile = tiles.get(p.id);
-      const anchor = mine ? $("my-tile") : tile && tile.frame;
-      const badge = mine ? $("my-tile").querySelector(".my-score") : tile && tile.score;
+      const inCorner = p.id === s.me.id && !tile;
+      const anchor = inCorner ? $("my-tile") : tile && tile.frame;
+      const badge = inCorner ? $("my-tile").querySelector(".my-score") : tile && tile.score;
       if (!anchor) continue;
       this.floatText(anchor, delta > 0 ? `+${delta}` : `${delta}`, delta > 0 ? "plus" : "minus");
       if (badge) this.restart(badge, delta > 0 ? "score-pop" : "score-drop");
@@ -873,7 +875,7 @@ const motion = {
 
 function renderGrid(s, leaders) {
   const grid = $("players-grid");
-  const others = s.players.filter((p) => p.id !== s.me.id);
+  const others = s.players.filter((p) => store.selfInGrid || p.id !== s.me.id);
   const spotlight = others.some((p) => p.id === s.activeId);
   grid.classList.toggle("spotlight", spotlight);
   const turnChanged = motion.lastActiveId !== null && motion.lastActiveId !== s.activeId;
@@ -906,6 +908,8 @@ function renderMyTile(s, leaders) {
   const root = $("my-tile");
   root.style.setProperty("--pc", me.color);
   root.classList.toggle("active", s.activeId === me.id);
+  root.classList.toggle("compact", store.selfInGrid);
+  $("btn-layout").classList.toggle("selected", !store.selfInGrid);
   bindSlot(root.querySelector(".media-slot"), me);
   root.querySelector(".my-nick").textContent = (leaders.has(me.id) ? "👑 " : "") + me.nick;
   root.querySelector(".my-score").textContent = `${me.score} pkt`;
@@ -980,6 +984,13 @@ function renderGame(s) {
   renderVote(s);
   motion.scoreChanges(s);
 }
+
+$("btn-layout").onclick = () => {
+  store.selfInGrid = !store.selfInGrid;
+  storage.set(`czolko-layout${PROFILE}`, store.selfInGrid ? "grid" : "corner");
+  toast(store.selfInGrid ? "Twój kafelek jest w siatce z innymi" : "Twój kafelek jest w rogu");
+  render();
+};
 
 $("btn-next").onclick = () => act("next");
 $("btn-guess").onclick = () => act("guess");
@@ -1331,6 +1342,8 @@ socket.on("event", ({ text }) => toast(text));
 
 socket.on("wordChanged", ({ reason, text }) => {
   motion.restart($("my-tile").querySelector(".my-word"), "word-new");
+  const myGridTile = store.state && tiles.get(store.state.me.id);
+  if (myGridTile) motion.restart(myGridTile.word, "word-new");
   if (reason === "rerolled") {
     toast("Host wylosował ci nowe hasło");
     if (notes.value.trim()) ask("Masz nowe hasło. Wyczyścić notatki?", clearNotes);
