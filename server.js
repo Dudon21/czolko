@@ -10,6 +10,7 @@ const { randomWords } = require("./words");
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const MAX_ADMIN_ATTEMPTS = 5;
+const MAX_CAMERA_ATTEMPTS = 10;
 const LIVEKIT_URL = process.env.LIVEKIT_URL || "";
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || "";
 const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || "";
@@ -29,17 +30,17 @@ function videoRoomName(room) {
   return `czolko-${room.code}`;
 }
 
-async function createVideoToken(room, player) {
-  const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
-    identity: player.id,
-    name: player.nick,
-    ttl: "8h"
-  });
+function phoneIdentity(player) {
+  return `${player.id}:phone`;
+}
+
+async function createVideoToken(room, identity, name, canSubscribe) {
+  const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { identity, name, ttl: "8h" });
   token.addGrant({
     roomJoin: true,
     room: videoRoomName(room),
     canPublish: true,
-    canSubscribe: true,
+    canSubscribe,
     canPublishData: false
   });
   return token.toJwt();
@@ -68,7 +69,11 @@ registry.on("avatar", (room, player) => sendToRoom(room, "avatar", { id: player.
 registry.on("wordChanged", (room, player, reason, text) => sendToPlayer(player, "wordChanged", { reason, text }));
 
 registry.on("removed", (room, player, reason) => {
-  if (livekitRooms) livekitRooms.removeParticipant(videoRoomName(room), player.id).catch(() => {});
+  if (livekitRooms) {
+    for (const identity of [player.id, phoneIdentity(player)]) {
+      livekitRooms.removeParticipant(videoRoomName(room), identity).catch(() => {});
+    }
+  }
   const socket = player.socketId && io.sockets.sockets.get(player.socketId);
   if (!socket) return;
   socket.data.session = null;
@@ -135,8 +140,17 @@ function handle(socket, event, handler) {
   });
 }
 
+function leavePhone(socket) {
+  const phone = socket.data.phone;
+  socket.data.phone = null;
+  const room = phone && registry.getRoom(phone.code);
+  const player = room && room.getPlayer(phone.playerId);
+  if (player) room.changePhoneCount(player, -1);
+}
+
 io.on("connection", (socket) => {
   socket.data.adminAttempts = 0;
+  socket.data.cameraAttempts = 0;
 
   handle(socket, "createRoom", ({ nick }) => {
     const room = registry.createRoom();
@@ -202,8 +216,30 @@ io.on("connection", (socket) => {
   handle(socket, "videoToken", async () => {
     const { room, player } = currentSession(socket);
     if (!VIDEO_ENABLED) fail("Kamerki nie są skonfigurowane na serwerze");
-    return { url: LIVEKIT_URL, token: await createVideoToken(room, player) };
+    return { url: LIVEKIT_URL, token: await createVideoToken(room, player.id, player.nick, true) };
   });
+
+  handle(socket, "cameraJoin", async ({ code, refreshOnly }) => {
+    if (!VIDEO_ENABLED) fail("Kamerki nie są skonfigurowane na serwerze");
+    if (socket.data.cameraAttempts >= MAX_CAMERA_ATTEMPTS) fail("Za dużo prób. Odśwież stronę");
+    const found = registry.findByCameraCode(code);
+    if (!found) {
+      socket.data.cameraAttempts += 1;
+      fail("Nie ma gracza z takim kodem kamerki");
+    }
+    const { room, player } = found;
+    leavePhone(socket);
+    socket.data.phone = { code: room.code, playerId: player.id };
+    room.changePhoneCount(player, 1);
+    const result = { nick: player.nick, color: player.color };
+    if (!refreshOnly) {
+      result.url = LIVEKIT_URL;
+      result.token = await createVideoToken(room, phoneIdentity(player), `${player.nick} (telefon)`, false);
+    }
+    return result;
+  });
+
+  handle(socket, "cameraLeave", () => leavePhone(socket));
 
   handle(socket, "startGame", () => {
     const { room, player } = currentSession(socket);
@@ -255,12 +291,20 @@ io.on("connection", (socket) => {
     room.adminAdjustScore(player, playerId, delta);
   });
 
+  handle(socket, "admin:endGame", () => {
+    const { room, player } = currentSession(socket);
+    room.adminEndGame(player);
+  });
+
   handle(socket, "admin:restart", () => {
     const { room, player } = currentSession(socket);
     room.adminRestart(player);
   });
 
-  socket.on("disconnect", () => detach(socket));
+  socket.on("disconnect", () => {
+    detach(socket);
+    leavePhone(socket);
+  });
 });
 
 server.listen(PORT, () => {

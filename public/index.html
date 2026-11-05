@@ -24,6 +24,33 @@
         <button id="btn-join" class="btn">Dołącz</button>
       </div>
       <p id="home-error" class="error"></p>
+      <button id="btn-phone-mode" class="btn btn-small btn-wide hidden">📱 Telefon jako kamerka gracza</button>
+    </div>
+  </section>
+
+  <section id="screen-camera" class="screen hidden">
+    <div class="card phone-card">
+      <h1 class="logo logo-small">Kamerka</h1>
+      <div id="phone-form">
+        <p class="status">Wpisz kod kamerki gracza. Gracz widzi go w lobby, pod rysowaniem avatara.</p>
+        <div class="row">
+          <input id="phone-code" class="code-input" maxlength="6" autocomplete="off" placeholder="KOD">
+          <button id="btn-phone-connect" class="btn btn-primary">Połącz</button>
+        </div>
+        <p id="phone-error" class="error"></p>
+        <button id="btn-phone-back" class="btn btn-small">Wróć</button>
+      </div>
+      <div id="phone-live" class="hidden">
+        <p class="phone-who">Jesteś kamerką gracza <span id="phone-nick"></span></p>
+        <div class="phone-video-wrap">
+          <video id="phone-video" muted autoplay playsinline></video>
+        </div>
+        <p class="status">Nie wyłączaj ekranu. Dźwięk nie jest wysyłany.</p>
+        <div class="row row-center">
+          <button id="btn-phone-flip" class="btn">Przód / tył</button>
+          <button id="btn-phone-stop" class="btn btn-red">Rozłącz</button>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -56,6 +83,13 @@
           <button id="btn-camera" class="btn btn-small btn-camera">Włącz kamerkę</button>
           <p class="status">Opcjonalnie. Bez kamerki inni widzą twój rysunek. Dźwięk zostaje na Discordzie.</p>
           <div id="camera-preview" class="media-slot camera-preview hidden" data-video="1"></div>
+          <div class="phone-info">
+            <p>Albo użyj telefonu jako kamerki: otwórz na nim <b id="phone-site"></b>, wybierz „Telefon jako kamerka” i wpisz kod:</p>
+            <div class="row">
+              <span id="my-camera-code" class="code-badge"></span>
+              <span id="phone-status" class="tag"></span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -103,6 +137,7 @@
         </div>
       </div>
       <button id="btn-camera-game" class="btn btn-small btn-camera hidden" title="Kamerka">📷</button>
+      <button class="btn btn-small btn-red btn-leave-game" title="Wyjdź z gry">Wyjdź</button>
       <span class="turn-badge my-turn-badge hidden">Czółko</span>
     </div>
 
@@ -147,15 +182,22 @@
       <p id="end-reason" class="end-reason"></p>
       <ol id="ranking" class="ranking"></ol>
       <button id="btn-to-lobby" class="btn btn-primary btn-wide">Wróć do lobby</button>
+      <button class="btn btn-small btn-red btn-wide btn-leave-game">Wyjdź z pokoju</button>
     </div>
   </section>
 
-  <button id="admin-toggle" class="btn btn-small admin-toggle hidden">Panel admina</button>
+  <button id="admin-toggle" class="btn btn-small admin-toggle hidden">Admin</button>
   <div id="admin-panel" class="card admin-panel hidden">
     <h2>Panel admina</h2>
+    <div id="admin-login-game" class="row">
+      <input id="admin-password-game" type="password" placeholder="hasło admina" autocomplete="off">
+      <button id="btn-admin-game" class="btn btn-small">Zaloguj</button>
+    </div>
+    <div id="admin-tools">
     <div class="row">
       <button class="btn btn-small" data-admin="forceNext">Wymuś Next</button>
       <button class="btn btn-small btn-primary" data-admin="restart">Restart gry</button>
+      <button class="btn btn-small btn-red" data-admin="end">Zakończ grę</button>
       <button class="btn btn-small" data-admin="lobby">Do lobby</button>
     </div>
     <div class="row admin-vote">
@@ -171,6 +213,7 @@
       <button class="btn btn-small" data-admin="limit">Zmień</button>
     </div>
     <div id="admin-players" class="admin-players"></div>
+    </div>
   </div>
 
   <div id="modal" class="modal hidden">

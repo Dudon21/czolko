@@ -1016,3 +1016,140 @@ input.invalid {
     animation: none;
   }
 }
+
+.turn-timer {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--navy);
+  font-size: 0.8em;
+  vertical-align: middle;
+}
+
+.turn-timer:empty {
+  display: none;
+}
+
+.turn-timer.low {
+  background: var(--red);
+  color: #fff;
+}
+
+.players-grid.spotlight {
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 210px);
+  grid-auto-rows: auto;
+  align-content: start;
+  justify-content: stretch;
+  gap: 46px 34px;
+}
+
+.players-grid.spotlight .ptile {
+  grid-column: 2;
+  align-self: center;
+}
+
+.players-grid.spotlight .ptile.active {
+  grid-column: 1;
+  grid-row: 1 / span var(--side-rows);
+  align-self: start;
+  justify-self: center;
+  width: min(100%, 62vh);
+}
+
+.players-grid.spotlight .ptile:not(.active) .word-label {
+  font-size: 1.1rem;
+  padding: 2px 14px;
+}
+
+.players-grid.spotlight .ptile:not(.active) .nick-bar {
+  font-size: 1rem;
+}
+
+.players-grid.spotlight .ptile.active .word-label {
+  font-size: 2rem;
+  padding: 6px 28px;
+}
+
+.players-grid.spotlight .ptile.active .nick-bar {
+  font-size: 1.5rem;
+}
+
+.players-grid.spotlight .ptile.active .score-badge {
+  min-width: 60px;
+  height: 60px;
+  font-size: 1.8rem;
+}
+
+.phone-card {
+  width: min(480px, 100%);
+  margin: 0 auto;
+}
+
+#screen-camera {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.phone-who {
+  font-size: 1.2rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.phone-video-wrap {
+  border-radius: 18px;
+  overflow: hidden;
+  border: 4px solid var(--yellow);
+  background: #000;
+}
+
+#phone-video {
+  display: block;
+  width: 100%;
+  max-height: 60vh;
+  object-fit: cover;
+}
+
+#phone-video.mirror {
+  transform: scaleX(-1);
+}
+
+.phone-info {
+  margin-top: 12px;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.phone-info p {
+  margin: 0;
+}
+
+.phone-info .code-badge {
+  font-size: 1.4rem;
+  letter-spacing: 4px;
+}
+
+#admin-login-game input {
+  flex: 1;
+}
+
+@media (max-width: 900px) {
+  .players-grid.spotlight {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .players-grid.spotlight .ptile,
+  .players-grid.spotlight .ptile.active {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .players-grid.spotlight .ptile.active {
+    grid-column: 1 / -1;
+    order: -1;
+    width: min(100%, 420px);
+  }
+}

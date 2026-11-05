@@ -25,6 +25,7 @@ const store = {
   state: null,
   avatars: new Map(),
   voteDeadline: 0,
+  turnDeadline: 0,
   replaced: false
 };
 
@@ -137,7 +138,7 @@ const media = {
       track.attach(videoEl);
       videoEl.currentTrack = track;
     }
-    videoEl.classList.toggle("mirror", Boolean(store.state) && player.id === store.state.me.id);
+    videoEl.classList.toggle("mirror", track === video.localTrack());
     slot.classList.add("has-video");
   },
 
@@ -204,12 +205,22 @@ const video = {
     return room;
   },
 
+  cameraTrackOf(participant) {
+    const publication = participant && participant.getTrackPublication(this.lib.Track.Source.Camera);
+    return publication && publication.track && !publication.isMuted ? publication.track : null;
+  },
+
+  localTrack() {
+    return this.room ? this.cameraTrackOf(this.room.localParticipant) : null;
+  },
+
   trackFor(playerId) {
     if (!this.room) return null;
     const local = this.room.localParticipant;
-    const participant = local.identity === playerId ? local : this.room.remoteParticipants.get(playerId);
-    const publication = participant && participant.getTrackPublication(this.lib.Track.Source.Camera);
-    return publication && publication.track && !publication.isMuted ? publication.track : null;
+    return (
+      this.cameraTrackOf(this.room.remoteParticipants.get(`${playerId}:phone`)) ||
+      (local.identity === playerId ? this.cameraTrackOf(local) : this.cameraTrackOf(this.room.remoteParticipants.get(playerId)))
+    );
   },
 
   async setCamera(on) {
@@ -229,7 +240,8 @@ const video = {
 
   sync(s) {
     if (!this.available) return;
-    if (s.phase === "game") this.ensureConnected();
+    const me = s.players.find((p) => p.id === s.me.id);
+    if (s.phase === "game" || (me && me.hasPhone)) this.ensureConnected();
     if (this.wantsCamera() && !this.cameraOn && !this.autoStartTried) {
       this.autoStartTried = true;
       this.setCamera(true);
@@ -247,9 +259,11 @@ const video = {
 };
 
 function renderCameraButtons() {
+  const me = store.state && findPlayer(store.state.me.id);
   show($("camera-box"), video.available);
   show($("btn-camera-game"), video.available);
-  show($("camera-preview"), video.cameraOn);
+  show($("btn-phone-mode"), video.available);
+  show($("camera-preview"), video.cameraOn || Boolean(me && me.hasPhone));
   $("btn-camera").textContent = video.cameraOn ? "Wyłącz kamerkę" : "Włącz kamerkę";
   $("btn-camera").classList.toggle("selected", video.cameraOn);
   $("btn-camera-game").classList.toggle("selected", video.cameraOn);
@@ -500,6 +514,11 @@ function renderLobby(s) {
   wordsForm.sync();
   const me = findPlayer(s.me.id);
   if (me) bindSlot($("camera-preview"), me);
+  $("phone-site").textContent = location.host;
+  $("my-camera-code").textContent = s.me.cameraCode;
+  $("phone-status").textContent = me && me.hasPhone ? "📱 telefon połączony" : "telefon niepodłączony";
+  $("phone-status").classList.toggle("tag-ok", Boolean(me && me.hasPhone));
+  renderCameraButtons();
 
   const list = $("lobby-players");
   list.replaceChildren();
@@ -515,6 +534,7 @@ function renderLobby(s) {
     if (p.isAdmin) tags.appendChild(el("span", "tag tag-admin", "Admin"));
     if (p.canManage && !p.isAdmin) tags.appendChild(el("span", "tag tag-host", "Host"));
     tags.appendChild(el("span", `tag ${p.wordsReady ? "tag-ok" : ""}`, p.wordsReady ? "✓ hasła" : "pisze hasła…"));
+    if (p.hasPhone) tags.appendChild(el("span", "tag tag-ok", "📱 kamerka"));
     if (!p.connected) tags.appendChild(el("span", "tag tag-off", "offline"));
     info.appendChild(tags);
     row.append(slot, info);
@@ -548,10 +568,19 @@ function renderLobby(s) {
 
 $("btn-set-limit").onclick = () => act("setLimit", { limit: Number($("limit-input").value) });
 $("btn-start").onclick = () => act("startGame");
-$("btn-leave").onclick = () => ask("Na pewno wyjść z pokoju?", async () => {
-  await call("leaveRoom");
-  goHome();
-});
+function leaveRoom() {
+  const inGame = store.state && store.state.phase === "game";
+  const question = inGame
+    ? "Na pewno wyjść z gry? Stracisz swoje miejsce i punkty, nie da się wrócić do tej rozgrywki."
+    : "Na pewno wyjść z pokoju?";
+  ask(question, async () => {
+    await call("leaveRoom");
+    goHome();
+  });
+}
+
+$("btn-leave").onclick = leaveRoom;
+for (const button of document.querySelectorAll(".btn-leave-game")) button.onclick = leaveRoom;
 $("btn-admin").onclick = async () => {
   const response = await act("claimAdmin", { password: $("admin-password").value });
   if (response.ok) $("admin-password").value = "";
@@ -591,6 +620,9 @@ function updateTile(tile, p, s, leaders) {
 function renderGrid(s, leaders) {
   const grid = $("players-grid");
   const others = s.players.filter((p) => p.id !== s.me.id);
+  const spotlight = others.some((p) => p.id === s.activeId);
+  grid.classList.toggle("spotlight", spotlight);
+  grid.style.setProperty("--side-rows", Math.max(1, others.length - 1));
   const seen = new Set();
   others.forEach((p, index) => {
     let tile = tiles.get(p.id);
@@ -625,10 +657,12 @@ function renderMyTile(s, leaders) {
 function renderTurn(s) {
   const myTurn = s.activeId === s.me.id;
   const active = findPlayer(s.activeId);
-  $("turn-banner").textContent = myTurn
-    ? "Twoja tura! Zadawaj pytania tak/nie"
-    : `Tura: ${active ? active.nick : "?"}`;
+  $("turn-banner").replaceChildren(
+    myTurn ? "Twoja tura! Zadawaj pytania tak/nie " : `Tura: ${active ? active.nick : "?"} `,
+    el("span", "turn-timer")
+  );
   $("turn-banner").classList.toggle("mine", myTurn);
+  store.turnDeadline = s.turnRemainingMs === null ? 0 : performance.now() + s.turnRemainingMs;
 
   show($("action-bar"), myTurn);
   for (const id of ["btn-next", "btn-guess", "btn-pass"]) $(id).disabled = Boolean(s.vote);
@@ -637,8 +671,10 @@ function renderTurn(s) {
     $("action-status").append(`Czekam na głosy: ✔ ${s.vote.yes}/${s.vote.required} · ✖ ${s.vote.no} · `);
     $("action-status").appendChild(el("span", "vote-timer"));
   } else if (myTurn) {
-    $("action-status").textContent = `Gramy do ${s.pointLimit} pkt`;
+    $("action-status").append(`Gramy do ${s.pointLimit} pkt · `);
+    $("action-status").appendChild(el("span", "turn-timer"));
   }
+  updateTurnTimers();
 }
 
 function renderVote(s) {
@@ -656,13 +692,26 @@ function renderVote(s) {
   $("btn-vote-no").classList.toggle("selected", vote.myVote === "no");
 }
 
+function secondsLeft(deadline) {
+  return Math.max(0, Math.ceil((deadline - performance.now()) / 1000));
+}
+
 function updateVoteTimers() {
-  const seconds = Math.max(0, Math.ceil((store.voteDeadline - performance.now()) / 1000));
+  const seconds = secondsLeft(store.voteDeadline);
   for (const node of document.querySelectorAll(".vote-timer")) node.textContent = `${seconds} s`;
+}
+
+function updateTurnTimers() {
+  const seconds = store.turnDeadline ? secondsLeft(store.turnDeadline) : null;
+  for (const node of document.querySelectorAll(".turn-timer")) {
+    node.textContent = seconds === null ? "" : `⏱ ${seconds} s`;
+    node.classList.toggle("low", seconds !== null && seconds <= 10);
+  }
 }
 
 setInterval(() => {
   if (store.voteDeadline) updateVoteTimers();
+  updateTurnTimers();
 }, 250);
 
 function renderGame(s) {
@@ -683,7 +732,8 @@ function renderEnd(s) {
   const reasons = {
     limit: "Ktoś dobił do limitu punktów!",
     pool: "Skończyły się hasła do wylosowania.",
-    players: "Zostało za mało graczy."
+    players: "Zostało za mało graczy.",
+    admin: "Admin zakończył grę."
   };
   $("end-reason").textContent = reasons[s.endReason] || "";
   const list = $("ranking");
@@ -705,10 +755,14 @@ function renderEnd(s) {
 $("btn-to-lobby").onclick = () => act("backToLobby");
 
 function renderAdminPanel(s) {
-  const visible = s.me.isAdmin && s.phase !== "lobby";
+  const visible = s.phase !== "lobby";
   show($("admin-toggle"), visible);
   if (!visible) show($("admin-panel"), false);
+  $("admin-toggle").textContent = s.me.isAdmin ? "Panel admina" : "Admin";
+  show($("admin-login-game"), !s.me.isAdmin);
+  show($("admin-tools"), s.me.isAdmin);
   if (!s.me.isAdmin) return;
+  for (const button of document.querySelectorAll("[data-admin=end]")) button.disabled = s.phase !== "game";
 
   const limitInput = $("admin-limit");
   if (document.activeElement !== limitInput) limitInput.value = s.pointLimit;
@@ -745,6 +799,11 @@ function renderAdminPanel(s) {
 
 $("admin-toggle").onclick = () => $("admin-panel").classList.toggle("hidden");
 
+$("btn-admin-game").onclick = async () => {
+  const response = await act("claimAdmin", { password: $("admin-password-game").value });
+  if (response.ok) $("admin-password-game").value = "";
+};
+
 $("admin-panel").addEventListener("click", (event) => {
   const button = event.target.closest("[data-admin]");
   if (!button) return;
@@ -756,6 +815,7 @@ $("admin-panel").addEventListener("click", (event) => {
   if (action === "limit") act("setLimit", { limit: Number($("admin-limit").value) });
   if (action === "score") act("admin:score", { playerId: id, delta: Number(delta) });
   if (action === "restart") ask("Zrestartować grę? Punkty się wyzerują, hasła zostaną wylosowane od nowa.", () => act("admin:restart"));
+  if (action === "end") ask("Zakończyć grę teraz? Wszyscy zobaczą ranking.", () => act("admin:endGame"));
   if (action === "lobby") ask("Przerwać grę i wrócić do lobby?", () => act("backToLobby"));
   if (action === "kick" && target) ask(`Wyrzucić gracza ${target.nick}?`, () => act("kick", { playerId: id }));
 });
@@ -773,7 +833,7 @@ $("btn-clear-notes").onclick = () => ask("Wyczyścić notatki?", clearNotes);
 
 function render() {
   const s = store.state;
-  if (!s) return;
+  if (!s || phone.mode) return;
   if (s.phase === "lobby") {
     showScreen("lobby");
     renderLobby(s);
@@ -784,7 +844,10 @@ function render() {
     showScreen("end");
     renderEnd(s);
   }
-  if (s.phase !== "game") store.voteDeadline = 0;
+  if (s.phase !== "game") {
+    store.voteDeadline = 0;
+    store.turnDeadline = 0;
+  }
   renderAdminPanel(s);
   video.sync(s);
 }
@@ -831,9 +894,139 @@ $("home-code").addEventListener("keydown", (event) => {
   if (event.key === "Enter") $("btn-join").click();
 });
 
+const phone = {
+  mode: false,
+  room: null,
+  code: "",
+  facing: "user",
+  wakeLock: null,
+
+  open(code) {
+    this.mode = true;
+    showScreen("camera");
+    show($("phone-form"), true);
+    show($("phone-live"), false);
+    $("phone-error").textContent = "";
+    if (code) $("phone-code").value = code.toUpperCase();
+  },
+
+  close() {
+    this.stop();
+    this.mode = false;
+    history.replaceState(null, "", location.pathname + (PROFILE ? `?p=${PROFILE}` : ""));
+    resumeSession();
+  },
+
+  async connect() {
+    const code = $("phone-code").value.trim().toUpperCase();
+    if (!video.lib) return ($("phone-error").textContent = "Nie udało się wczytać biblioteki wideo");
+    $("btn-phone-connect").disabled = true;
+    const response = await call("cameraJoin", { code });
+    $("btn-phone-connect").disabled = false;
+    if (!response.ok) return ($("phone-error").textContent = response.error);
+    const { Room, RoomEvent, VideoPresets } = video.lib;
+    const room = new Room({ adaptiveStream: false, dynacast: true });
+    room.on(RoomEvent.Disconnected, () => {
+      if (this.room !== room) return;
+      this.stop();
+      $("phone-error").textContent = "Kamerka została rozłączona";
+    });
+    try {
+      await room.connect(response.url, response.token);
+      await room.localParticipant.setCameraEnabled(true, {
+        facingMode: this.facing,
+        resolution: VideoPresets.h360.resolution
+      });
+    } catch {
+      room.disconnect();
+      call("cameraLeave");
+      $("phone-error").textContent = "Brak dostępu do kamery. Sprawdź uprawnienia przeglądarki";
+      return;
+    }
+    this.room = room;
+    this.code = code;
+    $("phone-nick").textContent = response.nick;
+    $("phone-nick").style.color = response.color;
+    show($("phone-form"), false);
+    show($("phone-live"), true);
+    this.attachPreview();
+    this.keepAwake();
+  },
+
+  attachPreview() {
+    const track = video.cameraTrackOf(this.room && this.room.localParticipant);
+    const element = $("phone-video");
+    if (track) track.attach(element);
+    element.classList.toggle("mirror", this.facing === "user");
+  },
+
+  async flip() {
+    const track = video.cameraTrackOf(this.room && this.room.localParticipant);
+    if (!track) return;
+    this.facing = this.facing === "user" ? "environment" : "user";
+    try {
+      await track.restartTrack({ facingMode: this.facing });
+    } catch {
+      toast("Nie udało się przełączyć kamery", true);
+    }
+    this.attachPreview();
+  },
+
+  async keepAwake() {
+    try {
+      if ("wakeLock" in navigator && document.visibilityState === "visible") {
+        this.wakeLock = await navigator.wakeLock.request("screen");
+      }
+    } catch {}
+  },
+
+  stop() {
+    const room = this.room;
+    this.room = null;
+    this.code = "";
+    if (room) {
+      room.disconnect();
+      call("cameraLeave");
+    }
+    if (this.wakeLock) this.wakeLock.release().catch(() => {});
+    this.wakeLock = null;
+    show($("phone-form"), true);
+    show($("phone-live"), false);
+  }
+};
+
+$("btn-phone-mode").onclick = () => phone.open("");
+$("btn-phone-back").onclick = () => phone.close();
+$("btn-phone-connect").onclick = () => phone.connect();
+$("btn-phone-flip").onclick = () => phone.flip();
+$("btn-phone-stop").onclick = () => phone.stop();
+$("phone-code").addEventListener("input", (event) => {
+  event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+});
+document.addEventListener("visibilitychange", () => {
+  if (phone.room && document.visibilityState === "visible") phone.keepAwake();
+});
+
+const startCameraCode = new URLSearchParams(location.search).get("kamera");
+if (startCameraCode) phone.open(startCameraCode);
+
+async function resumeSession() {
+  const token = storage.get(TOKEN_KEY);
+  if (!token) {
+    showScreen("home");
+    return;
+  }
+  const response = await call("resume", { token });
+  if (!response.ok) goHome(response.error);
+}
+
 socket.on("connect", async () => {
   show($("connection"), false);
   if (store.replaced) return;
+  if (phone.mode) {
+    if (phone.room) call("cameraJoin", { code: phone.code, refreshOnly: true });
+    return;
+  }
   const token = storage.get(TOKEN_KEY);
   if (!token) {
     if (!store.state) showScreen("home");
@@ -843,7 +1036,7 @@ socket.on("connect", async () => {
   if (!response.ok) goHome(response.error);
 });
 
-socket.on("disconnect", () => show($("connection"), !store.replaced));
+socket.on("disconnect", () => show($("connection"), !store.replaced && !phone.room));
 
 socket.on("state", (state) => {
   store.state = state;

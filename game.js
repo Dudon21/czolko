@@ -6,12 +6,15 @@ const MAX_WORD_LENGTH = 40;
 const MAX_NICK_LENGTH = 16;
 const MAX_PLAYERS = 12;
 const VOTE_TIME_MS = 30000;
+const TURN_TIME_MS = 45000;
 const DEFAULT_POINT_LIMIT = 5;
 const MIN_POINT_LIMIT = 1;
 const MAX_POINT_LIMIT = 100;
 const MAX_AVATAR_LENGTH = 200000;
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000;
 const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+const CAMERA_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const CAMERA_CODE_LENGTH = 6;
 const COLORS = [
   "#ff4d6d", "#ffb703", "#06d6a0", "#4cc9f0", "#b388ff", "#ff8fab",
   "#f77f00", "#80ed99", "#ffd166", "#00bbf9", "#f15bb5", "#9ef01a"
@@ -51,6 +54,8 @@ class Room {
     this.pool = [];
     this.activeId = null;
     this.vote = null;
+    this.turnTimer = null;
+    this.turnEndsAt = 0;
     this.endReason = null;
     this.wordSeq = 0;
     this.cleanupTimer = null;
@@ -109,6 +114,8 @@ class Room {
     const player = {
       id: crypto.randomUUID(),
       token: crypto.randomBytes(24).toString("hex"),
+      cameraCode: this.hub.newCameraCode(),
+      phoneCount: 0,
       nick,
       color: COLORS.find((c) => !usedColors.has(c)) || COLORS[this.players.length % COLORS.length],
       avatar: null,
@@ -151,6 +158,11 @@ class Room {
     if (!connected) player.socketId = null;
     this.evaluateVote();
     this.hub.updatePresence(this);
+    this.changed();
+  }
+
+  changePhoneCount(player, delta) {
+    player.phoneCount = Math.max(0, player.phoneCount + delta);
     this.changed();
   }
 
@@ -226,7 +238,28 @@ class Room {
     for (const p of this.players) {
       if (!this.drawWord(p)) return this.finish("pool");
     }
+    this.restartTurnTimer();
     this.announce(`Gra rozpoczęta! Zaczyna ${starter.nick}`);
+  }
+
+  stopTurnTimer() {
+    clearTimeout(this.turnTimer);
+    this.turnTimer = null;
+    this.turnEndsAt = 0;
+  }
+
+  restartTurnTimer() {
+    this.stopTurnTimer();
+    if (this.phase !== "game" || this.vote || !this.activeId) return;
+    const activeId = this.activeId;
+    this.turnEndsAt = Date.now() + TURN_TIME_MS;
+    this.turnTimer = setTimeout(() => {
+      if (this.phase !== "game" || this.vote || this.activeId !== activeId) return;
+      const player = this.getPlayer(activeId);
+      this.announce(`Czas minął! ${player ? player.nick : "Gracz"} traci turę`);
+      this.advanceTurn();
+      this.changed();
+    }, TURN_TIME_MS);
   }
 
   drawWord(player) {
@@ -260,6 +293,7 @@ class Room {
     }
     if (!next) next = this.players[(start + 1) % count];
     this.activeId = next.id;
+    this.restartTurnTimer();
   }
 
   requireTurn(player) {
@@ -282,6 +316,7 @@ class Room {
     this.announce(`${player.nick} pasuje (−1). Hasło: ${word ? word.text : "?"}`);
     this.emit("wordChanged", player, "passed", word ? word.text : "");
     if (!this.drawWord(player)) this.finish("pool");
+    else this.restartTurnTimer();
     this.changed();
   }
 
@@ -300,6 +335,7 @@ class Room {
       this.changed();
     }, VOTE_TIME_MS);
     this.vote = vote;
+    this.stopTurnTimer();
     this.announce(`${player.nick} mówi, że zgadł(a)! Głosujcie`);
     this.changed();
   }
@@ -348,6 +384,7 @@ class Room {
   cancelVote(message) {
     if (!this.vote) return;
     this.clearVote();
+    this.restartTurnTimer();
     this.announce(message);
   }
 
@@ -367,6 +404,7 @@ class Room {
 
   finish(reason) {
     this.clearVote();
+    this.stopTurnTimer();
     this.phase = "end";
     this.endReason = reason;
     this.activeId = null;
@@ -376,6 +414,7 @@ class Room {
     if (this.phase === "game") this.requireAdmin(player);
     this.requirePhase("game", "end");
     this.clearVote();
+    this.stopTurnTimer();
     this.phase = "lobby";
     this.pool = [];
     this.activeId = null;
@@ -425,6 +464,14 @@ class Room {
     this.removePlayer(target, "Zostałeś wyrzucony z pokoju");
   }
 
+  adminEndGame(admin) {
+    this.requireAdmin(admin);
+    this.requirePhase("game");
+    this.finish("admin");
+    this.announce("Admin kończy grę");
+    this.changed();
+  }
+
   adminRestart(admin) {
     this.requireAdmin(admin);
     this.requirePhase("game", "end");
@@ -454,6 +501,7 @@ class Room {
       phase: this.phase,
       pointLimit: this.pointLimit,
       activeId: this.activeId,
+      turnRemainingMs: this.turnEndsAt ? Math.max(0, this.turnEndsAt - Date.now()) : null,
       endReason: this.endReason,
       poolSize: this.pool.length,
       me: {
@@ -462,7 +510,8 @@ class Room {
         isAdmin: viewer.isAdmin,
         canManage: this.canManage(viewer),
         words: viewer.words,
-        wordsReady: viewer.wordsReady
+        wordsReady: viewer.wordsReady,
+        cameraCode: viewer.cameraCode
       },
       players: this.players.map((p) => ({
         id: p.id,
@@ -474,6 +523,7 @@ class Room {
         isAdmin: p.isAdmin,
         isCreator: p.id === this.creatorId,
         canManage: this.canManage(p),
+        hasPhone: p.phoneCount > 0,
         word: p.id !== viewer.id && p.word ? p.word.text : null
       })),
       vote: this.voteView(viewer),
@@ -516,6 +566,25 @@ class Registry extends EventEmitter {
     return null;
   }
 
+  findByCameraCode(code) {
+    if (typeof code !== "string") return null;
+    const wanted = code.trim().toUpperCase();
+    if (wanted.length !== CAMERA_CODE_LENGTH) return null;
+    for (const room of this.rooms.values()) {
+      const player = room.players.find((p) => p.cameraCode === wanted);
+      if (player) return { room, player };
+    }
+    return null;
+  }
+
+  newCameraCode() {
+    let code;
+    do {
+      code = Array.from({ length: CAMERA_CODE_LENGTH }, () => CAMERA_CODE_CHARS[crypto.randomInt(CAMERA_CODE_CHARS.length)]).join("");
+    } while (this.findByCameraCode(code));
+    return code;
+  }
+
   updatePresence(room) {
     clearTimeout(room.cleanupTimer);
     room.cleanupTimer = null;
@@ -528,6 +597,7 @@ class Registry extends EventEmitter {
   deleteRoom(room) {
     clearTimeout(room.cleanupTimer);
     room.clearVote();
+    room.stopTurnTimer();
     this.rooms.delete(room.code);
   }
 }
