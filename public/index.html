@@ -58,6 +58,8 @@
     <header class="lobby-header">
       <h1 class="logo logo-small">Czółko</h1>
       <div class="room-code">Pokój <span id="lobby-code" class="code-badge"></span></div>
+      <button id="btn-start" class="btn btn-green btn-big btn-start-top hidden">▶ Start gry</button>
+      <p id="start-waiting" class="start-waiting hidden"></p>
       <button id="btn-leave" class="btn btn-small btn-red">Wyjdź</button>
     </header>
     <div class="lobby-grid">
@@ -114,16 +116,7 @@
           </label>
           <button id="btn-set-limit" class="btn btn-small">Ustaw</button>
         </div>
-        <button id="btn-start" class="btn btn-green btn-wide">Start gry</button>
         <p id="start-hint" class="status"></p>
-        <div class="admin-login">
-          <h3>Admin</h3>
-          <div id="admin-login-form" class="row">
-            <input id="admin-password" type="password" placeholder="hasło admina" autocomplete="off">
-            <button id="btn-admin" class="btn btn-small">Zaloguj</button>
-          </div>
-          <p id="admin-status" class="status"></p>
-        </div>
       </div>
     </div>
   </section>
@@ -190,7 +183,8 @@
 
   <button id="admin-toggle" class="btn btn-small admin-toggle hidden">Admin</button>
   <div id="admin-panel" class="card admin-panel hidden">
-    <h2>Panel admina</h2>
+    <h2 id="admin-title">Panel hosta</h2>
+    <p id="admin-login-hint" class="status">Wpisz hasło admina, żeby przejąć hosta.</p>
     <div id="admin-login-game" class="row">
       <input id="admin-password-game" type="password" placeholder="hasło admina" autocomplete="off">
       <button id="btn-admin-game" class="btn btn-small">Zaloguj</button>

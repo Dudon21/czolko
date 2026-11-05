@@ -1181,3 +1181,16 @@ input.invalid {
 #avatar-canvas.fill-mode {
   cursor: cell;
 }
+
+.btn-start-top {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.start-waiting {
+  margin: 0;
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: rgba(47, 214, 122, 0.2);
+  color: var(--green);
+  font-weight: 800;
+}

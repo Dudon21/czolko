@@ -48,7 +48,7 @@ class Room {
     this.code = code;
     this.hub = hub;
     this.players = [];
-    this.creatorId = null;
+    this.hostId = null;
     this.phase = "lobby";
     this.pointLimit = DEFAULT_POINT_LIMIT;
     this.pool = [];
@@ -77,20 +77,16 @@ class Room {
     return this.players.find((p) => p.id === id) || null;
   }
 
-  hasAdmin() {
-    return this.players.some((p) => p.isAdmin);
-  }
-
   canManage(player) {
-    return player.isAdmin || (!this.hasAdmin() && player.id === this.creatorId);
+    return player.id === this.hostId;
   }
 
   requireManager(player) {
-    if (!this.canManage(player)) fail("Tylko admin albo twórca pokoju może to zrobić");
+    if (!this.canManage(player)) fail("Tylko host może to zrobić");
   }
 
   requireAdmin(player) {
-    if (!player.isAdmin) fail("Tylko admin może to zrobić");
+    this.requireManager(player);
   }
 
   requirePhase(...phases) {
@@ -121,14 +117,13 @@ class Room {
       avatar: null,
       words: [],
       wordsReady: false,
-      isAdmin: false,
       connected: false,
       socketId: null,
       score: 0,
       word: null
     };
     this.players.push(player);
-    if (!this.creatorId) this.creatorId = player.id;
+    if (!this.hostId) this.hostId = player.id;
     return player;
   }
 
@@ -141,9 +136,15 @@ class Room {
       player.word = null;
     }
     this.players = this.players.filter((p) => p !== player);
-    if (this.creatorId === player.id) this.creatorId = this.players[0] ? this.players[0].id : null;
     this.emit("removed", player, reason);
     this.announce(`${player.nick} opuszcza pokój`);
+    if (this.hostId === player.id) {
+      const candidates = this.players.filter((p) => p.connected);
+      const pool = candidates.length ? candidates : this.players;
+      const newHost = pool.length ? pool[crypto.randomInt(pool.length)] : null;
+      this.hostId = newHost ? newHost.id : null;
+      if (newHost) this.announce(`${newHost.nick} zostaje nowym hostem`);
+    }
 
     if (this.phase === "game") {
       if (this.players.length < 2) this.finish("players");
@@ -205,9 +206,10 @@ class Room {
     this.changed();
   }
 
-  grantAdmin(player) {
-    player.isAdmin = true;
-    this.announce(`${player.nick} jest teraz adminem`);
+  claimHost(player) {
+    if (this.hostId === player.id) fail("Już jesteś hostem");
+    this.hostId = player.id;
+    this.announce(`${player.nick} przejmuje hosta (hasło admina)`);
     this.changed();
   }
 
@@ -458,7 +460,7 @@ class Room {
   }
 
   kick(admin, playerId) {
-    if (!(admin.isAdmin || (this.phase === "lobby" && this.canManage(admin)))) fail("Nie możesz wyrzucać graczy");
+    this.requireManager(admin);
     const target = this.requireTarget(playerId);
     if (target === admin) fail("Nie możesz wyrzucić siebie");
     this.removePlayer(target, "Zostałeś wyrzucony z pokoju");
@@ -507,7 +509,6 @@ class Room {
       me: {
         id: viewer.id,
         nick: viewer.nick,
-        isAdmin: viewer.isAdmin,
         canManage: this.canManage(viewer),
         words: viewer.words,
         wordsReady: viewer.wordsReady,
@@ -520,8 +521,6 @@ class Room {
         connected: p.connected,
         score: p.score,
         wordsReady: p.wordsReady,
-        isAdmin: p.isAdmin,
-        isCreator: p.id === this.creatorId,
         canManage: this.canManage(p),
         hasPhone: p.phoneCount > 0,
         word: p.id !== viewer.id && p.word ? p.word.text : null

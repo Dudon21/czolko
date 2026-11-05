@@ -583,7 +583,7 @@ function renderLobby(s) {
 
   const list = $("lobby-players");
   list.replaceChildren();
-  const canKick = s.me.canManage || s.me.isAdmin;
+  const canKick = s.me.canManage;
   for (const p of s.players) {
     const row = el("div", `lobby-player${p.connected ? "" : " offline"}`);
     row.style.setProperty("--pc", p.color);
@@ -592,8 +592,7 @@ function renderLobby(s) {
     const info = el("div", "lp-info");
     info.appendChild(el("div", "lp-nick", p.nick + (p.id === s.me.id ? " (ty)" : "")));
     const tags = el("div", "tags");
-    if (p.isAdmin) tags.appendChild(el("span", "tag tag-admin", "Admin"));
-    if (p.canManage && !p.isAdmin) tags.appendChild(el("span", "tag tag-host", "Host"));
+    if (p.canManage) tags.appendChild(el("span", "tag tag-host", "Host"));
     tags.appendChild(el("span", `tag ${p.wordsReady ? "tag-ok" : ""}`, p.wordsReady ? "✓ hasła" : "pisze hasła…"));
     if (p.hasPhone) tags.appendChild(el("span", "tag tag-ok", "📱 kamerka"));
     if (!p.connected) tags.appendChild(el("span", "tag tag-off", "offline"));
@@ -611,20 +610,18 @@ function renderLobby(s) {
   if (document.activeElement !== limitInput) limitInput.value = s.pointLimit;
   limitInput.disabled = !s.me.canManage;
   show($("btn-set-limit"), s.me.canManage);
-  show($("btn-start"), s.me.canManage);
 
   const missing = s.players.filter((p) => !p.wordsReady).map((p) => p.nick);
-  const hosts = s.players.filter((p) => p.canManage).map((p) => p.nick);
+  const host = s.players.find((p) => p.canManage);
+  const allReady = s.players.length >= 2 && missing.length === 0;
   let hint = "";
   if (s.players.length < 2) hint = "Czekamy na co najmniej 2 graczy";
   else if (missing.length) hint = `Brakuje haseł od: ${missing.join(", ")}`;
-  else if (!s.me.canManage) hint = `Wszyscy gotowi! Grę startuje: ${hosts.join(", ")}`;
   else hint = "Wszyscy gotowi!";
   $("start-hint").textContent = hint;
-  $("btn-start").disabled = s.players.length < 2 || missing.length > 0;
-
-  show($("admin-login-form"), !s.me.isAdmin);
-  $("admin-status").textContent = s.me.isAdmin ? "✓ Jesteś adminem" : "";
+  show($("btn-start"), s.me.canManage && allReady);
+  show($("start-waiting"), !s.me.canManage && allReady);
+  $("start-waiting").textContent = `Wszyscy gotowi! Czekamy, aż ${host ? host.nick : "host"} wystartuje grę`;
 }
 
 $("btn-set-limit").onclick = () => act("setLimit", { limit: Number($("limit-input").value) });
@@ -642,10 +639,6 @@ function leaveRoom() {
 
 $("btn-leave").onclick = leaveRoom;
 for (const button of document.querySelectorAll(".btn-leave-game")) button.onclick = leaveRoom;
-$("btn-admin").onclick = async () => {
-  const response = await act("claimAdmin", { password: $("admin-password").value });
-  if (response.ok) $("admin-password").value = "";
-};
 
 const tiles = new Map();
 
@@ -816,13 +809,16 @@ function renderEnd(s) {
 $("btn-to-lobby").onclick = () => act("backToLobby");
 
 function renderAdminPanel(s) {
-  const visible = s.phase !== "lobby";
+  const isHost = s.me.canManage;
+  const visible = s.phase !== "lobby" || !isHost;
   show($("admin-toggle"), visible);
   if (!visible) show($("admin-panel"), false);
-  $("admin-toggle").textContent = s.me.isAdmin ? "Panel admina" : "Admin";
-  show($("admin-login-game"), !s.me.isAdmin);
-  show($("admin-tools"), s.me.isAdmin);
-  if (!s.me.isAdmin) return;
+  $("admin-toggle").textContent = isHost ? "Panel hosta" : "Admin";
+  $("admin-title").textContent = isHost ? "Panel hosta" : "Admin";
+  show($("admin-login-hint"), !isHost);
+  show($("admin-login-game"), !isHost);
+  show($("admin-tools"), isHost);
+  if (!isHost) return;
   for (const button of document.querySelectorAll("[data-admin=end]")) button.disabled = s.phase !== "game";
 
   const limitInput = $("admin-limit");

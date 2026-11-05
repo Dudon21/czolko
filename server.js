@@ -210,7 +210,7 @@ io.on("connection", (socket) => {
       socket.data.adminAttempts += 1;
       fail("Złe hasło");
     }
-    room.grantAdmin(player);
+    room.claimHost(player);
   });
 
   handle(socket, "videoToken", async () => {
