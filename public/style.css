@@ -664,10 +664,14 @@ input.invalid {
   }
 }
 
+.ptile {
+  padding-bottom: 26px;
+}
+
 .ptile-frame {
   position: relative;
   width: 100%;
-  padding: 6px 6px 0;
+  padding: 6px;
   background: var(--pc);
   border-radius: 26px;
   box-shadow: 0 8px 0 rgba(0, 0, 0, 0.3);
@@ -686,15 +690,22 @@ input.invalid {
 }
 
 .nick-bar {
-  text-align: center;
-  font-weight: 800;
-  font-size: 1.15rem;
-  color: #fff;
-  padding: 2px 8px 4px;
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 2;
+  max-width: calc(100% - 64px);
+  padding: 0 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.38);
+  color: rgba(255, 255, 255, 0.88);
+  font-weight: 700;
+  font-size: 0.85rem;
+  line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  pointer-events: none;
 }
 
 .score-badge {
@@ -717,17 +728,24 @@ input.invalid {
 }
 
 .word-label {
-  margin-top: 16px;
-  max-width: 100%;
+  position: absolute;
+  left: 50%;
+  bottom: -24px;
+  z-index: 3;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% + 12px);
   background: #fff;
   color: var(--navy);
-  border-radius: 999px;
-  padding: 4px 20px;
+  border: 4px solid var(--pc);
+  border-radius: 16px;
+  padding: 2px 20px;
   font-weight: 800;
-  font-size: 1.4rem;
+  font-size: 1.75rem;
+  line-height: 1.15;
   text-align: center;
   overflow-wrap: anywhere;
-  box-shadow: var(--shadow);
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.3);
 }
 
 .bottom-panel {
@@ -1059,21 +1077,27 @@ input.invalid {
 }
 
 .players-grid.spotlight .ptile:not(.active) .word-label {
-  font-size: 1.1rem;
-  padding: 2px 14px;
+  font-size: 1.25rem;
+  padding: 1px 12px;
+  border-width: 3px;
+  bottom: -20px;
 }
 
 .players-grid.spotlight .ptile:not(.active) .nick-bar {
-  font-size: 1rem;
+  font-size: 0.75rem;
+  top: 10px;
+  left: 10px;
 }
 
 .players-grid.spotlight .ptile.active .word-label {
-  font-size: 2rem;
-  padding: 6px 28px;
+  font-size: 2.6rem;
+  padding: 2px 30px;
+  border-width: 5px;
+  bottom: -30px;
 }
 
-.players-grid.spotlight .ptile.active .nick-bar {
-  font-size: 1.5rem;
+.players-grid.spotlight .ptile.active {
+  padding-bottom: 34px;
 }
 
 .players-grid.spotlight .ptile.active .score-badge {
@@ -1152,4 +1176,8 @@ input.invalid {
     order: -1;
     width: min(100%, 420px);
   }
+}
+
+#avatar-canvas.fill-mode {
+  cursor: cell;
 }

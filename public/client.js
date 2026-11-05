@@ -293,7 +293,7 @@ const avatarEditor = (() => {
   const ctx = canvas.getContext("2d");
   let color = BRUSH_COLORS[0];
   let size = BRUSH_SIZES[1];
-  let erasing = false;
+  let tool = "brush";
   let drawing = false;
   let last = null;
   let touched = false;
@@ -313,7 +313,7 @@ const avatarEditor = (() => {
   }
 
   function stroke(from, to) {
-    ctx.strokeStyle = erasing ? "#ffffff" : color;
+    ctx.strokeStyle = tool === "eraser" ? "#ffffff" : color;
     ctx.lineWidth = size;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -323,6 +323,56 @@ const avatarEditor = (() => {
     ctx.stroke();
   }
 
+  function hexToRgb(hex) {
+    const value = parseInt(hex.slice(1), 16);
+    return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+  }
+
+  function floodFill(point) {
+    const width = canvas.width;
+    const height = canvas.height;
+    const x = Math.floor(point.x);
+    const y = Math.floor(point.y);
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    const image = ctx.getImageData(0, 0, width, height);
+    const data = image.data;
+    const [r, g, b] = hexToRgb(color);
+    const start = (y * width + x) * 4;
+    const [sr, sg, sb] = [data[start], data[start + 1], data[start + 2]];
+    if (Math.abs(sr - r) + Math.abs(sg - g) + Math.abs(sb - b) < 6) return;
+    const distance = (i) => Math.abs(data[i] - sr) + Math.abs(data[i + 1] - sg) + Math.abs(data[i + 2] - sb);
+    const visited = new Uint8Array(width * height);
+    const edges = [];
+    const stack = [y * width + x];
+    while (stack.length) {
+      const pixel = stack.pop();
+      if (visited[pixel]) continue;
+      visited[pixel] = 1;
+      const i = pixel * 4;
+      const diff = distance(i);
+      if (diff > 96) {
+        if (diff < 400) edges.push(i);
+        continue;
+      }
+      data[i] = r;
+      data[i + 1] = g;
+      data[i + 2] = b;
+      data[i + 3] = 255;
+      const px = pixel % width;
+      if (px > 0) stack.push(pixel - 1);
+      if (px < width - 1) stack.push(pixel + 1);
+      if (pixel >= width) stack.push(pixel - width);
+      if (pixel < width * (height - 1)) stack.push(pixel + width);
+    }
+    for (const i of edges) {
+      data[i] = r;
+      data[i + 1] = g;
+      data[i + 2] = b;
+      data[i + 3] = 255;
+    }
+    ctx.putImageData(image, 0, 0);
+  }
+
   function upload() {
     clearTimeout(uploadTimer);
     uploadTimer = setTimeout(() => act("setAvatar", { data: canvas.toDataURL("image/png") }), 350);
@@ -330,12 +380,20 @@ const avatarEditor = (() => {
 
   function refreshTools() {
     for (const button of $("avatar-colors").children) {
-      button.classList.toggle("selected", !erasing && button.dataset.color === color);
+      button.classList.toggle("selected", tool !== "eraser" && button.dataset.color === color);
     }
     for (const button of $("avatar-sizes").children) {
-      button.classList.toggle("selected", Number(button.dataset.size) === size);
+      button.classList.toggle("selected", tool === "brush" && Number(button.dataset.size) === size);
     }
-    $("btn-eraser").classList.toggle("selected", erasing);
+    $("btn-brush").classList.toggle("selected", tool === "brush");
+    $("btn-eraser").classList.toggle("selected", tool === "eraser");
+    $("btn-fill").classList.toggle("selected", tool === "fill");
+    canvas.classList.toggle("fill-mode", tool === "fill");
+  }
+
+  function setTool(next) {
+    tool = next;
+    refreshTools();
   }
 
   for (const c of BRUSH_COLORS) {
@@ -344,8 +402,7 @@ const avatarEditor = (() => {
     button.dataset.color = c;
     button.onclick = () => {
       color = c;
-      erasing = false;
-      refreshTools();
+      setTool(tool === "fill" ? "fill" : "brush");
     };
     $("avatar-colors").appendChild(button);
   }
@@ -358,15 +415,14 @@ const avatarEditor = (() => {
     button.appendChild(dot);
     button.onclick = () => {
       size = s;
-      refreshTools();
+      setTool(tool === "eraser" ? "eraser" : "brush");
     };
     $("avatar-sizes").appendChild(button);
   }
 
-  $("btn-eraser").onclick = () => {
-    erasing = !erasing;
-    refreshTools();
-  };
+  $("btn-brush").onclick = () => setTool("brush");
+  $("btn-eraser").onclick = () => setTool("eraser");
+  $("btn-fill").onclick = () => setTool("fill");
 
   $("btn-clear-avatar").onclick = () => {
     touched = true;
@@ -376,8 +432,13 @@ const avatarEditor = (() => {
   };
 
   canvas.addEventListener("pointerdown", (event) => {
-    drawing = true;
     touched = true;
+    if (tool === "fill") {
+      floodFill(pointFrom(event));
+      upload();
+      return;
+    }
+    drawing = true;
     canvas.setPointerCapture(event.pointerId);
     last = pointFrom(event);
     stroke(last, last);
@@ -599,9 +660,9 @@ function createTile() {
   slot.dataset.video = "1";
   const score = el("div", "score-badge");
   const nick = el("div", "nick-bar");
-  frame.append(slot, score, nick);
   const word = el("div", "word-label");
-  root.append(top, frame, word);
+  frame.append(slot, nick, score, word);
+  root.append(top, frame);
   return { root, crown, badge, slot, score, nick, word };
 }
 
