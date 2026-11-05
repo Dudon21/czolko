@@ -1,36 +1,90 @@
 const crypto = require("crypto");
 
 const CATEGORIES = {
-  zwierzeta: [
-    "kot", "pies", "słoń", "żyrafa", "pingwin", "krokodyl", "małpa", "lew", "tygrys", "zebra",
-    "wielbłąd", "kangur", "koala", "panda", "sowa", "papuga", "żółw", "ślimak", "jeż", "wiewiórka",
-    "lis", "wilk", "niedźwiedź", "królik", "chomik", "koń", "krowa", "świnia", "owca", "koza",
-    "kura", "kaczka", "gęś", "bocian", "orzeł", "rekin", "delfin", "wieloryb", "ośmiornica", "meduza",
-    "krab", "homar", "pająk", "mrówka", "pszczoła", "motyl", "biedronka", "komar", "żaba", "wąż",
-    "jaszczurka", "hipopotam", "nosorożec", "flaming", "struś", "foka", "mors", "bóbr", "kret", "nietoperz"
+  chelsea: [
+    "Cole Palmer", "Enzo Fernández", "Moisés Caicedo", "Reece James", "Marc Cucurella", "João Pedro",
+    "Pedro Neto", "Frank Lampard", "Didier Drogba", "John Terry", "Eden Hazard", "Petr Čech",
+    "N'Golo Kanté", "José Mourinho", "Roman Abramowicz"
   ],
-  przedmioty: [
-    "parasol", "telefon", "lodówka", "pralka", "odkurzacz", "czajnik", "widelec", "łyżka", "nóż", "talerz",
-    "kubek", "krzesło", "stół", "łóżko", "poduszka", "kołdra", "lampa", "zegar", "budzik", "klucz",
-    "zamek", "drzwi", "okno", "lustro", "szczoteczka do zębów", "grzebień", "nożyczki", "ołówek", "długopis", "gumka",
-    "linijka", "plecak", "walizka", "portfel", "okulary", "kapelusz", "czapka", "szalik", "rękawiczki", "but",
-    "skarpeta", "koszulka", "spodnie", "rower", "hulajnoga", "samochód", "samolot", "statek", "pociąg", "rakieta",
-    "gitara", "pianino", "bęben", "trąbka", "piłka", "deskorolka", "latawiec", "balon", "świeczka", "pilot do telewizora",
-    "telewizor", "komputer", "klawiatura", "myszka komputerowa", "słuchawki", "aparat", "mikrofon", "drabina", "młotek", "śrubokręt"
+  liverpool: [
+    "Mohamed Salah", "Virgil van Dijk", "Alisson Becker", "Florian Wirtz", "Alexander Isak",
+    "Dominik Szoboszlai", "Alexis Mac Allister", "Cody Gakpo", "Hugo Ekitike", "Arne Slot",
+    "Jürgen Klopp", "Steven Gerrard", "Jerzy Dudek", "Luis Suárez", "Fernando Torres"
   ],
-  zawody: [
-    "lekarz", "nauczyciel", "strażak", "policjant", "kucharz", "piekarz", "fryzjer", "listonosz", "kierowca", "pilot",
-    "astronauta", "programista", "sprzedawca", "kelner", "rolnik", "weterynarz", "dentysta", "pielęgniarka", "aktor", "piosenkarz",
-    "malarz", "fotograf", "dziennikarz", "sędzia", "prawnik", "architekt", "mechanik", "elektryk", "hydraulik", "stolarz",
-    "krawiec", "ogrodnik", "rybak", "górnik", "żołnierz", "marynarz", "kosmonauta", "bibliotekarz", "ratownik", "trener",
-    "piłkarz", "tancerz", "magik", "klaun", "detektyw", "naukowiec", "archeolog", "kominiarz", "pszczelarz", "youtuber"
+  arsenal: [
+    "Bukayo Saka", "Martin Ødegaard", "Declan Rice", "William Saliba", "Gabriel Martinelli",
+    "Kai Havertz", "Viktor Gyökeres", "David Raya", "Mikel Arteta", "Thierry Henry",
+    "Arsène Wenger", "Łukasz Fabiański", "Dennis Bergkamp"
   ],
-  postacie: [
-    "Shrek", "Batman", "Superman", "Spider-Man", "Harry Potter", "Myszka Miki", "Kaczor Donald", "Kubuś Puchatek", "Pinokio", "Kopciuszek",
-    "Królewna Śnieżka", "Czerwony Kapturek", "Smerf", "Reksio", "Bolek", "Lolek", "Pippi", "Sherlock Holmes", "Święty Mikołaj", "Pikachu",
-    "Mario", "Sonic", "Gandalf", "Frodo", "Darth Vader", "Yoda", "Hulk", "Iron Man", "Kapitan Ameryka", "Thor",
-    "Elsa", "Olaf", "Simba", "Nemo", "Dora", "Scooby-Doo", "Garfield", "Homer Simpson", "SpongeBob", "Asterix",
-    "Kot w butach", "Piotruś Pan", "Tarzan", "Robin Hood", "Zorro", "Dracula", "Frankenstein", "Smok Wawelski", "Pan Kleks", "Muminek"
+  premierLeague: [
+    "Erling Haaland", "Pep Guardiola", "Phil Foden", "Kevin De Bruyne", "Bruno Fernandes",
+    "Marcus Rashford", "Harry Kane", "Son Heung-min", "Wayne Rooney", "David Beckham",
+    "Alex Ferguson", "Jamie Vardy"
+  ],
+  barcelona: [
+    "Lamine Yamal", "Pedri", "Gavi", "Raphinha", "Frenkie de Jong", "Pau Cubarsí", "Dani Olmo",
+    "Ferran Torres", "Marc-André ter Stegen", "Hansi Flick", "Xavi", "Andrés Iniesta",
+    "Ronaldinho", "Carles Puyol", "Neymar", "Gerard Piqué"
+  ],
+  realMadryt: [
+    "Kylian Mbappé", "Vinícius Júnior", "Jude Bellingham", "Federico Valverde", "Thibaut Courtois",
+    "Rodrygo", "Antonio Rüdiger", "Trent Alexander-Arnold", "Xabi Alonso", "Carlo Ancelotti",
+    "Luka Modrić", "Toni Kroos", "Sergio Ramos", "Zinedine Zidane", "Iker Casillas",
+    "Karim Benzema", "Florentino Pérez"
+  ],
+  pilkaNozna: [
+    "Robert Lewandowski", "Leo Messi", "Cristiano Ronaldo", "Wojciech Szczęsny", "Piotr Zieliński",
+    "Jakub Błaszczykowski", "Zbigniew Boniek", "Kamil Glik", "Ronaldo Nazário", "Pelé",
+    "Diego Maradona", "Zlatan Ibrahimović"
+  ],
+  tenis: [
+    "Iga Świątek", "Hubert Hurkacz", "Magda Linette", "Magdalena Fręch", "Maja Chwalińska",
+    "Kamil Majchrzak", "Agnieszka Radwańska", "Wojciech Fibak", "Jerzy Janowicz",
+    "Jannik Sinner", "Carlos Alcaraz", "Novak Djoković", "Aryna Sabalenka", "Coco Gauff",
+    "Elena Rybakina", "Jessica Pegula", "Mirra Andreeva", "Jasmine Paolini", "Daniil Miedwiediew",
+    "Alexander Zverev", "Taylor Fritz", "Ben Shelton", "Roger Federer", "Rafael Nadal",
+    "Serena Williams", "Andy Murray", "Naomi Osaka", "Emma Raducanu"
+  ],
+  starWars: [
+    "Darth Vader", "Luke Skywalker", "Księżniczka Leia", "Han Solo", "Chewbacca", "Yoda",
+    "Obi-Wan Kenobi", "Anakin Skywalker", "Imperator Palpatine", "R2-D2", "C-3PO", "Boba Fett",
+    "Jabba", "Darth Maul", "Kylo Ren", "Rey", "Grogu", "Mandalorianin", "Szturmowiec",
+    "Qui-Gon Jinn", "Padmé Amidala", "Jar Jar Binks", "Lando Calrissian", "Ahsoka Tano",
+    "Hrabia Dooku", "Mace Windu", "Generał Grievous", "BB-8", "Ewok"
+  ],
+  polska: [
+    "Karol Nawrocki", "Donald Tusk", "Andrzej Duda", "Jarosław Kaczyński", "Rafał Trzaskowski",
+    "Sławomir Mentzen", "Szymon Hołownia", "Radosław Sikorski", "Grzegorz Braun", "Mateusz Morawiecki",
+    "Lech Wałęsa", "Józef Piłsudski", "Jan Paweł II", "Mieszko I", "Bolesław Chrobry",
+    "Kazimierz Wielki", "Tadeusz Kościuszko", "Mikołaj Kopernik", "Maria Skłodowska-Curie",
+    "Fryderyk Chopin", "Adam Mickiewicz", "Juliusz Słowacki", "Henryk Sienkiewicz",
+    "Wisława Szymborska", "Stanisław Lem", "Andrzej Sapkowski", "Jan Matejko", "Janosik",
+    "Pan Tadeusz", "Smok Wawelski", "Geralt z Rivii", "Ferdynand Kiepski"
+  ],
+  polskieGwiazdy: [
+    "Robert Makłowicz", "Magda Gessler", "Kuba Wojewódzki", "Krzysztof Ibisz", "Martyna Wojciechowska",
+    "Doda", "Maryla Rodowicz", "Krzysztof Krawczyk", "Zenek Martyniuk", "Dawid Podsiadło", "Sanah",
+    "Mata", "Quebonafide", "Taco Hemingway", "Friz", "Książulo",
+    "Adam Małysz", "Kamil Stoch", "Mariusz Pudzianowski", "Robert Kubica", "Jan Błachowicz",
+    "Bartosz Kurek", "Wilfredo León", "Anita Włodarczyk", "Justyna Kowalczyk", "Marcin Gortat"
+  ],
+  filmyIBajki: [
+    "Harry Potter", "Hermiona Granger", "Ron Weasley", "Lord Voldemort", "Dumbledore",
+    "Gandalf", "Frodo", "Gollum", "James Bond", "Jack Sparrow", "Indiana Jones", "Joker",
+    "Walter White", "Sherlock Holmes", "Shrek", "Kubuś Puchatek", "Myszka Miki", "SpongeBob",
+    "Homer Simpson", "Elsa", "Simba", "Scooby-Doo", "Reksio", "Krecik", "Świnka Peppa"
+  ],
+  superbohaterowie: [
+    "Batman", "Superman", "Spider-Man", "Iron Man", "Kapitan Ameryka", "Thor", "Hulk",
+    "Thanos", "Deadpool", "Wolverine"
+  ],
+  swiat: [
+    "Albert Einstein", "Napoleon", "Kleopatra", "Juliusz Cezar", "Leonardo da Vinci",
+    "Elon Musk", "Bill Gates", "Steve Jobs", "Mark Zuckerberg", "Donald Trump", "Władimir Putin",
+    "Królowa Elżbieta II", "Michael Jackson", "Freddie Mercury", "Taylor Swift", "Eminem",
+    "Rihanna", "Leonardo DiCaprio", "Brad Pitt", "Keanu Reeves", "Dwayne Johnson", "Mr Bean",
+    "MrBeast", "Michael Jordan", "LeBron James", "Usain Bolt", "Mike Tyson", "Lewis Hamilton",
+    "Max Verstappen", "Mario", "Pikachu", "Sonic"
   ]
 };
 

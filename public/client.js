@@ -584,7 +584,21 @@ const wordsForm = (() => {
       refresh();
     });
     inputs.push(input);
-    $("word-inputs").appendChild(input);
+    const reroll = el("button", "btn btn-small word-reroll", "🔄");
+    reroll.title = "Wylosuj inne hasło w tym polu";
+    reroll.onclick = () => rerollOne(i);
+    const row = el("div", "word-row");
+    row.append(input, reroll);
+    $("word-inputs").appendChild(row);
+  }
+
+  async function rerollOne(index) {
+    const response = await act("randomWords", { count: 1, exclude: values().filter(Boolean) });
+    if (!response.ok) return;
+    if (!response.words.length) return toast("Brak kolejnych haseł do wylosowania");
+    inputs[index].value = response.words[0];
+    dirty = true;
+    refresh();
   }
 
   function values() {
@@ -746,7 +760,7 @@ function createTile() {
   const word = el("div", "word-label");
   frame.append(slot, nick, score, word);
   root.append(top, frame);
-  return { root, crown, badge, slot, score, nick, word };
+  return { root, frame, crown, badge, slot, score, nick, word };
 }
 
 function updateTile(tile, p, s, leaders) {
@@ -757,15 +771,114 @@ function updateTile(tile, p, s, leaders) {
   show(tile.badge, s.activeId === p.id);
   tile.score.textContent = p.score;
   tile.nick.textContent = p.connected ? p.nick : `${p.nick} (offline)`;
-  tile.word.textContent = p.word || "—";
+  const previousWord = tile.word.textContent;
+  const nextWord = p.word || "—";
+  tile.word.textContent = nextWord;
+  if (previousWord && previousWord !== "—" && previousWord !== nextWord) motion.restart(tile.word, "word-new");
   bindSlot(tile.slot, p);
 }
+
+const motion = {
+  reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  lastScores: new Map(),
+  lastActiveId: null,
+
+  restart(node, className) {
+    node.classList.remove(className);
+    void node.offsetWidth;
+    node.classList.add(className);
+  },
+
+  floatText(anchor, text, kind) {
+    const node = el("div", `float-score float-${kind}`, text);
+    anchor.appendChild(node);
+    setTimeout(() => node.remove(), 1300);
+  },
+
+  confetti(anchor) {
+    if (this.reduced) return;
+    const colors = ["#ffd23f", "#ff4d6d", "#06d6a0", "#4cc9f0", "#b388ff", "#ffffff"];
+    const box = el("div", "confetti");
+    for (let i = 0; i < 22; i++) {
+      const piece = el("span");
+      piece.style.setProperty("--x", `${Math.round(Math.random() * 240 - 120)}px`);
+      piece.style.setProperty("--y", `${Math.round(-60 - Math.random() * 120)}px`);
+      piece.style.setProperty("--r", `${Math.round(Math.random() * 720 - 360)}deg`);
+      piece.style.setProperty("--d", `${Math.round(Math.random() * 120)}ms`);
+      piece.style.background = colors[i % colors.length];
+      box.appendChild(piece);
+    }
+    anchor.appendChild(box);
+    setTimeout(() => box.remove(), 1500);
+  },
+
+  scoreChanges(s) {
+    const previous = this.lastScores;
+    const current = new Map(s.players.map((p) => [p.id, p.score]));
+    this.lastScores = current;
+    const wasReset = s.players.every((p) => p.score === 0) && [...previous.values()].some((v) => v !== 0);
+    if (!previous.size || wasReset) return;
+    for (const p of s.players) {
+      if (!previous.has(p.id)) continue;
+      const delta = p.score - previous.get(p.id);
+      if (!delta) continue;
+      const mine = p.id === s.me.id;
+      const tile = tiles.get(p.id);
+      const anchor = mine ? $("my-tile") : tile && tile.frame;
+      const badge = mine ? $("my-tile").querySelector(".my-score") : tile && tile.score;
+      if (!anchor) continue;
+      this.floatText(anchor, delta > 0 ? `+${delta}` : `${delta}`, delta > 0 ? "plus" : "minus");
+      if (badge) this.restart(badge, delta > 0 ? "score-pop" : "score-drop");
+      if (delta > 0) this.confetti(anchor);
+    }
+  },
+
+  capture() {
+    if (this.reduced) return null;
+    const rects = new Map();
+    for (const tile of tiles.values()) rects.set(tile.root, tile.root.getBoundingClientRect());
+    return rects;
+  },
+
+  flip(rects) {
+    if (!rects) return;
+    for (const [node, first] of rects) {
+      if (!node.isConnected) continue;
+      const last = node.getBoundingClientRect();
+      if (!last.width || !last.height) continue;
+      const dx = first.left - last.left;
+      const dy = first.top - last.top;
+      const sx = first.width / last.width;
+      const sy = first.height / last.height;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sx - 1) < 0.01) continue;
+      node.style.transition = "none";
+      node.style.transformOrigin = "top left";
+      node.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        node.style.transition = "transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1)";
+        node.style.transform = "";
+      }));
+      node.addEventListener("transitionend", () => {
+        node.style.transition = "";
+        node.style.transformOrigin = "";
+      }, { once: true });
+    }
+  },
+
+  reset() {
+    this.lastScores = new Map();
+    this.lastActiveId = null;
+  }
+};
 
 function renderGrid(s, leaders) {
   const grid = $("players-grid");
   const others = s.players.filter((p) => p.id !== s.me.id);
   const spotlight = others.some((p) => p.id === s.activeId);
   grid.classList.toggle("spotlight", spotlight);
+  const turnChanged = motion.lastActiveId !== null && motion.lastActiveId !== s.activeId;
+  motion.lastActiveId = s.activeId;
+  const rects = turnChanged ? motion.capture() : null;
   grid.style.setProperty("--side-rows", Math.max(1, others.length - 1));
   const seen = new Set();
   others.forEach((p, index) => {
@@ -784,6 +897,7 @@ function renderGrid(s, leaders) {
       tiles.delete(id);
     }
   }
+  motion.flip(rects);
 }
 
 function renderMyTile(s, leaders) {
@@ -864,6 +978,7 @@ function renderGame(s) {
   renderGrid(s, leaders);
   renderTurn(s);
   renderVote(s);
+  motion.scoreChanges(s);
 }
 
 $("btn-next").onclick = () => act("next");
@@ -1004,6 +1119,7 @@ function render() {
   if (s.phase !== "game") {
     store.voteDeadline = 0;
     store.turnDeadline = 0;
+    motion.reset();
   }
   renderAdminPanel(s);
   video.sync(s);
@@ -1214,6 +1330,7 @@ socket.on("avatar", ({ id, data }) => {
 socket.on("event", ({ text }) => toast(text));
 
 socket.on("wordChanged", ({ reason, text }) => {
+  motion.restart($("my-tile").querySelector(".my-word"), "word-new");
   if (reason === "rerolled") {
     toast("Host wylosował ci nowe hasło");
     if (notes.value.trim()) ask("Masz nowe hasło. Wyczyścić notatki?", clearNotes);
