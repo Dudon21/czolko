@@ -95,6 +95,8 @@
             </div>
             <div class="row">
               <button id="btn-undo" class="btn btn-small" title="Ctrl+Z" disabled>↶ Cofnij</button>
+              <button id="btn-avatar-photo" class="btn btn-small">🖼️ Zdjęcie</button>
+              <input id="avatar-file" type="file" accept="image/*" hidden>
               <button id="btn-clear-avatar" class="btn btn-small btn-red">Wyczyść</button>
             </div>
           </div>
@@ -104,7 +106,9 @@
           <p class="status">Opcjonalnie. Bez kamerki inni widzą twój rysunek. Dźwięk zostaje na Discordzie.</p>
           <div id="camera-preview" class="media-slot camera-preview hidden" data-video="1"></div>
           <div class="phone-info">
-            <p>Albo użyj telefonu jako kamerki: otwórz na nim <b class="phone-site"></b>, wybierz „Telefon jako kamerka” i wpisz kod:</p>
+            <p>Albo użyj telefonu jako kamerki: zeskanuj kod QR telefonem.</p>
+            <img class="phone-qr" alt="Kod QR kamerki">
+            <p class="status">Bez QR: otwórz <b class="phone-site"></b>, wybierz „Telefon jako kamerka” i wpisz kod:</p>
             <div class="row">
               <span class="code-badge my-camera-code"></span>
               <span class="tag phone-status"></span>
@@ -157,7 +161,9 @@
       <h2>Kamerka</h2>
       <button id="btn-camera-panel" class="btn btn-small btn-camera">Włącz kamerkę</button>
       <div class="phone-info">
-        <p>Albo telefon jako kamerka: otwórz na nim <b class="phone-site"></b>, wybierz „Telefon jako kamerka” i wpisz kod:</p>
+        <p>Albo telefon jako kamerka: zeskanuj kod QR.</p>
+        <img class="phone-qr" alt="Kod QR kamerki">
+        <p class="status">Bez QR: otwórz <b class="phone-site"></b>, wybierz „Telefon jako kamerka” i wpisz kod:</p>
         <div class="row">
           <span class="code-badge my-camera-code"></span>
           <span class="tag phone-status"></span>

@@ -17,6 +17,7 @@
     "express": "^5.3.0",
     "livekit-client": "^2.23.0",
     "livekit-server-sdk": "^2.19.2",
+    "qrcode": "^1.5.4",
     "socket.io": "^4.8.4"
   }
 }

@@ -176,7 +176,7 @@ class Room {
     if (data === null) {
       player.avatar = null;
     } else {
-      if (typeof data !== "string" || !data.startsWith("data:image/png;base64,")) fail("Nieprawidłowy obrazek");
+      if (typeof data !== "string" || !/^data:image\/(png|jpeg);base64,/.test(data)) fail("Nieprawidłowy obrazek");
       if (data.length > MAX_AVATAR_LENGTH) fail("Avatar jest za duży");
       player.avatar = data;
     }

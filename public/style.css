@@ -1598,3 +1598,18 @@ input.invalid {
 .camera-panel h2 {
   margin-bottom: 8px;
 }
+
+.phone-qr {
+  display: block;
+  width: 150px;
+  height: 150px;
+  margin: 6px 0;
+  padding: 6px;
+  background: #ffffff;
+  border-radius: 10px;
+  image-rendering: pixelated;
+}
+
+.phone-qr.hidden {
+  display: none;
+}

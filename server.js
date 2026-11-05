@@ -3,6 +3,7 @@ const http = require("http");
 const crypto = require("crypto");
 const express = require("express");
 const { Server } = require("socket.io");
+const QRCode = require("qrcode");
 const { AccessToken, RoomServiceClient } = require("livekit-server-sdk");
 const { Registry, GameError, fail } = require("./game");
 const { randomWords } = require("./words");
@@ -25,6 +26,13 @@ app.get("/vendor/livekit-client.js", (req, res) => {
   res.sendFile(path.join(__dirname, "node_modules", "livekit-client", "dist", "livekit-client.umd.js"));
 });
 app.get("/config.json", (req, res) => res.json({ video: VIDEO_ENABLED }));
+app.get("/qr.svg", (req, res) => {
+  const text = String(req.query.text || "");
+  if (!text || text.length > 300) return res.status(400).end();
+  QRCode.toString(text, { type: "svg", margin: 1, errorCorrectionLevel: "M" })
+    .then((svg) => res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(svg))
+    .catch(() => res.status(500).end());
+});
 
 function videoRoomName(room) {
   return `czolko-${room.code}`;

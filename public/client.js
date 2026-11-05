@@ -303,6 +303,12 @@ function renderCameraButtons() {
   if (store.state) {
     for (const node of document.querySelectorAll(".phone-site")) node.textContent = location.host;
     for (const node of document.querySelectorAll(".my-camera-code")) node.textContent = store.state.me.cameraCode;
+    const link = `${location.origin}/?kamera=${store.state.me.cameraCode}`;
+    const qr = `/qr.svg?text=${encodeURIComponent(link)}`;
+    for (const node of document.querySelectorAll(".phone-qr")) {
+      if (node.getAttribute("src") !== qr) node.setAttribute("src", qr);
+      show(node, !(me && me.hasPhone));
+    }
     for (const node of document.querySelectorAll(".phone-status")) {
       node.textContent = me && me.hasPhone ? "📱 telefon połączony" : "telefon niepodłączony";
       node.classList.toggle("tag-ok", Boolean(me && me.hasPhone));
@@ -436,8 +442,40 @@ const avatarEditor = (() => {
 
   function upload() {
     clearTimeout(uploadTimer);
-    uploadTimer = setTimeout(() => act("setAvatar", { data: canvas.toDataURL("image/png") }), 350);
+    uploadTimer = setTimeout(() => {
+      let data = canvas.toDataURL("image/png");
+      if (data.length > 190000) data = canvas.toDataURL("image/jpeg", 0.85);
+      act("setAvatar", { data });
+    }, 350);
   }
+
+  function loadPhoto(file) {
+    if (!file || !file.type.startsWith("image/")) return toast("To nie jest obrazek", true);
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      const side = Math.min(image.naturalWidth, image.naturalHeight);
+      const sx = (image.naturalWidth - side) / 2;
+      const sy = (image.naturalHeight - side) / 2;
+      touched = true;
+      saveHistory();
+      fillWhite();
+      ctx.drawImage(image, sx, sy, side, side, 0, 0, canvas.width, canvas.height);
+      upload();
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      toast("Nie udało się wczytać zdjęcia", true);
+    };
+    image.src = url;
+  }
+
+  $("btn-avatar-photo").onclick = () => $("avatar-file").click();
+  $("avatar-file").onchange = (event) => {
+    loadPhoto(event.target.files[0]);
+    event.target.value = "";
+  };
 
   function refreshTools() {
     for (const button of $("avatar-colors").children) {
@@ -1373,7 +1411,10 @@ document.addEventListener("visibilitychange", () => {
 });
 
 const startCameraCode = new URLSearchParams(location.search).get("kamera");
-if (startCameraCode) phone.open(startCameraCode);
+if (startCameraCode) {
+  phone.open(startCameraCode);
+  if (startCameraCode.length === 6) phone.connect();
+}
 
 async function resumeSession() {
   const token = storage.get(TOKEN_KEY);
