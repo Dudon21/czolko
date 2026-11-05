@@ -149,10 +149,16 @@ const media = {
       videoEl.muted = true;
       videoEl.autoplay = true;
       videoEl.playsInline = true;
+      const markLive = () => videoEl.classList.toggle("live", videoEl.videoWidth > 0 && !videoEl.paused);
+      for (const event of ["playing", "resize", "loadeddata"]) videoEl.addEventListener(event, markLive);
+      for (const event of ["pause", "emptied", "ended"]) {
+        videoEl.addEventListener(event, () => videoEl.classList.remove("live"));
+      }
       slot.appendChild(videoEl);
     }
     if (videoEl.currentTrack !== track) {
       if (videoEl.currentTrack) videoEl.currentTrack.detach(videoEl);
+      videoEl.classList.remove("live");
       track.attach(videoEl);
       videoEl.currentTrack = track;
     }
