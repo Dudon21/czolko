@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Czółko</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section id="screen-home" class="screen hidden">
+    <div class="card home-card">
+      <h1 class="logo">Czółko</h1>
+      <label class="field">
+        <span>Twój nick</span>
+        <input id="home-nick" maxlength="16" autocomplete="off" placeholder="np. Ania">
+      </label>
+      <button id="btn-create" class="btn btn-primary btn-wide">Utwórz pokój</button>
+      <div class="divider">albo dołącz</div>
+      <div class="row">
+        <input id="home-code" class="code-input" maxlength="4" autocomplete="off" placeholder="KOD">
+        <button id="btn-join" class="btn">Dołącz</button>
+      </div>
+      <p id="home-error" class="error"></p>
+    </div>
+  </section>
+
+  <section id="screen-lobby" class="screen hidden">
+    <header class="lobby-header">
+      <h1 class="logo logo-small">Czółko</h1>
+      <div class="room-code">Pokój <span id="lobby-code" class="code-badge"></span></div>
+      <button id="btn-leave" class="btn btn-small btn-red">Wyjdź</button>
+    </header>
+    <div class="lobby-grid">
+      <div class="card">
+        <h2>Gracze</h2>
+        <div id="lobby-players" class="lobby-players"></div>
+      </div>
+
+      <div class="card">
+        <h2>Twój avatar</h2>
+        <div class="avatar-editor">
+          <canvas id="avatar-canvas" width="160" height="160"></canvas>
+          <div class="avatar-tools">
+            <div id="avatar-colors" class="swatches"></div>
+            <div id="avatar-sizes" class="sizes"></div>
+            <div class="row">
+              <button id="btn-eraser" class="btn btn-small">Gumka</button>
+              <button id="btn-clear-avatar" class="btn btn-small btn-red">Wyczyść</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Twoje hasła</h2>
+        <div id="word-inputs" class="word-inputs"></div>
+        <div class="row">
+          <button id="btn-random" class="btn">Losuj</button>
+          <button id="btn-save-words" class="btn btn-primary">Zapisz hasła</button>
+        </div>
+        <p id="words-status" class="status"></p>
+      </div>
+
+      <div class="card">
+        <h2>Ustawienia</h2>
+        <div class="row">
+          <label class="field field-inline">
+            <span>Limit punktów</span>
+            <input id="limit-input" type="number" min="1" max="100">
+          </label>
+          <button id="btn-set-limit" class="btn btn-small">Ustaw</button>
+        </div>
+        <button id="btn-start" class="btn btn-green btn-wide">Start gry</button>
+        <p id="start-hint" class="status"></p>
+        <div class="admin-login">
+          <h3>Admin</h3>
+          <div id="admin-login-form" class="row">
+            <input id="admin-password" type="password" placeholder="hasło admina" autocomplete="off">
+            <button id="btn-admin" class="btn btn-small">Zaloguj</button>
+          </div>
+          <p id="admin-status" class="status"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-game" class="screen hidden">
+    <div id="my-tile" class="my-tile">
+      <div class="media-slot" data-slot="me"></div>
+      <div class="my-info">
+        <div class="my-nick"></div>
+        <div class="my-row">
+          <span class="my-score"></span>
+          <span class="my-word">???</span>
+        </div>
+      </div>
+      <span class="turn-badge my-turn-badge hidden">Czółko</span>
+    </div>
+
+    <div class="game-layout">
+      <main class="game-main">
+        <div id="turn-banner" class="turn-banner"></div>
+        <div id="players-grid" class="players-grid"></div>
+
+        <div id="action-bar" class="bottom-panel action-bar hidden">
+          <p id="action-status" class="panel-status"></p>
+          <div class="row row-center">
+            <button id="btn-next" class="btn btn-big">Next</button>
+            <button id="btn-guess" class="btn btn-big btn-green">Zgadłem!</button>
+            <button id="btn-pass" class="btn btn-big btn-red">Pass</button>
+          </div>
+        </div>
+
+        <div id="vote-panel" class="bottom-panel vote-panel hidden">
+          <p class="vote-title"><span id="vote-nick"></span> mówi, że zgadł(a)!</p>
+          <p class="vote-word">Hasło: <span id="vote-word"></span></p>
+          <p class="panel-status"><span id="vote-counts"></span> · <span class="vote-timer"></span></p>
+          <div class="row row-center">
+            <button id="btn-vote-yes" class="btn btn-big btn-green">Potwierdź</button>
+            <button id="btn-vote-no" class="btn btn-big btn-red">Odrzuć</button>
+          </div>
+        </div>
+      </main>
+
+      <aside class="card notes">
+        <div class="notes-header">
+          <h2>Notatnik</h2>
+          <button id="btn-clear-notes" class="btn btn-small">Wyczyść</button>
+        </div>
+        <textarea id="notes" spellcheck="false" placeholder="Co już wiesz o swoim haśle? Notatki zostają tylko u ciebie."></textarea>
+      </aside>
+    </div>
+  </section>
+
+  <section id="screen-end" class="screen hidden">
+    <div class="card end-card">
+      <h1 class="logo">Koniec gry!</h1>
+      <p id="end-reason" class="end-reason"></p>
+      <ol id="ranking" class="ranking"></ol>
+      <button id="btn-to-lobby" class="btn btn-primary btn-wide">Wróć do lobby</button>
+    </div>
+  </section>
+
+  <button id="admin-toggle" class="btn btn-small admin-toggle hidden">Panel admina</button>
+  <div id="admin-panel" class="card admin-panel hidden">
+    <h2>Panel admina</h2>
+    <div class="row">
+      <button class="btn btn-small" data-admin="forceNext">Wymuś Next</button>
+      <button class="btn btn-small btn-primary" data-admin="restart">Restart gry</button>
+      <button class="btn btn-small" data-admin="lobby">Do lobby</button>
+    </div>
+    <div class="row admin-vote">
+      <span>Głosowanie:</span>
+      <button class="btn btn-small btn-green" data-admin="approve">Zatwierdź</button>
+      <button class="btn btn-small btn-red" data-admin="reject">Odrzuć</button>
+    </div>
+    <div class="row">
+      <label class="field field-inline">
+        <span>Limit</span>
+        <input id="admin-limit" type="number" min="1" max="100">
+      </label>
+      <button class="btn btn-small" data-admin="limit">Zmień</button>
+    </div>
+    <div id="admin-players" class="admin-players"></div>
+  </div>
+
+  <div id="modal" class="modal hidden">
+    <div class="card modal-box">
+      <p id="modal-text"></p>
+      <div class="row row-center">
+        <button id="modal-yes" class="btn btn-primary">Tak</button>
+        <button id="modal-no" class="btn">Nie</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="replaced" class="modal hidden">
+    <div class="card modal-box">
+      <p>Gra została otwarta w innej karcie.</p>
+      <button class="btn btn-primary" onclick="location.reload()">Wróć tutaj</button>
+    </div>
+  </div>
+
+  <div id="connection" class="connection hidden">Łączenie z serwerem…</div>
+  <div id="toasts" class="toasts"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>
