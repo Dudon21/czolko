@@ -7,6 +7,7 @@ const WORDS_PER_PLAYER = 10;
 const BRUSH_COLORS = ["#111111", "#e63946", "#f77f00", "#ffd60a", "#2a9d8f", "#4cc9f0", "#3a0ca3", "#f15bb5", "#8d5524", "#f1c27d"];
 const BRUSH_SIZES = [3, 7, 14];
 const SHAPE_TOOLS = ["rect", "square", "triangle", "circle"];
+const UNDO_LIMIT = 30;
 
 const $ = (id) => document.getElementById(id);
 
@@ -298,6 +299,23 @@ const avatarEditor = (() => {
   let drawing = false;
   let shapeStart = null;
   let snapshot = null;
+  const history = [];
+
+  function saveHistory() {
+    history.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    if (history.length > UNDO_LIMIT) history.shift();
+    $("btn-undo").disabled = false;
+  }
+
+  function undo() {
+    const previous = history.pop();
+    $("btn-undo").disabled = history.length === 0;
+    if (!previous) return;
+    drawing = false;
+    touched = true;
+    ctx.putImageData(previous, 0, 0);
+    upload();
+  }
   let last = null;
   let touched = false;
   let uploadTimer = null;
@@ -343,6 +361,7 @@ const avatarEditor = (() => {
     const start = (y * width + x) * 4;
     const [sr, sg, sb] = [data[start], data[start + 1], data[start + 2]];
     if (Math.abs(sr - r) + Math.abs(sg - g) + Math.abs(sb - b) < 6) return;
+    saveHistory();
     const distance = (i) => Math.abs(data[i] - sr) + Math.abs(data[i + 1] - sg) + Math.abs(data[i + 2] - sb);
     const visited = new Uint8Array(width * height);
     const edges = [];
@@ -456,8 +475,19 @@ const avatarEditor = (() => {
     button.onclick = () => setTool(button.dataset.tool);
   }
 
+  $("btn-undo").onclick = undo;
+
+  document.addEventListener("keydown", (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
+    if ($("screen-lobby").classList.contains("hidden")) return;
+    if (event.target.closest("input, textarea")) return;
+    event.preventDefault();
+    undo();
+  });
+
   $("btn-clear-avatar").onclick = () => {
     touched = true;
+    saveHistory();
     fillWhite();
     clearTimeout(uploadTimer);
     act("setAvatar", { data: null });
@@ -473,9 +503,10 @@ const avatarEditor = (() => {
     drawing = true;
     canvas.setPointerCapture(event.pointerId);
     last = pointFrom(event);
+    saveHistory();
     if (isShape()) {
       shapeStart = last;
-      snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      snapshot = history[history.length - 1];
       return;
     }
     stroke(last, last);
@@ -517,6 +548,8 @@ const avatarEditor = (() => {
     },
     reset() {
       touched = false;
+      history.length = 0;
+      $("btn-undo").disabled = true;
       fillWhite();
     }
   };
