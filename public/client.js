@@ -9,7 +9,9 @@ const BRUSH_SIZES = [3, 7, 14];
 const SHAPE_TOOLS = ["rect", "square", "triangle", "circle"];
 const UNDO_LIMIT = 30;
 const ROLL_TIME_MS = 5000;
-const ROOM_WARNING_SECONDS = 600;
+const ROOM_WARNING_SECONDS = 120;
+const ROLL_REVEAL_FROM = 0.6;
+const SCRAMBLE_CHARS = "#$%&@*?!+=<>{}[]/\~^";
 const SECRET_DECOYS = ["???", "?!?", "¿??", "?¿?", "??¿", "!??", "??!", "???"];
 
 const $ = (id) => document.getElementById(id);
@@ -47,8 +49,6 @@ const store = {
   voteDeadline: 0,
   turnDeadline: 0,
   roomDeadline: 0,
-  decoys: [],
-  decoysLoading: false,
   selfInGrid: storage.get(`czolko-layout${PROFILE}`) !== "corner",
   replaced: false
 };
@@ -891,44 +891,29 @@ const motion = {
       label.textContent = finalText();
       return;
     }
-    const decoys = secret ? SECRET_DECOYS : this.decoys();
-    const ticks = [];
-    for (let delay = 45, total = 0; total < ROLL_TIME_MS; delay *= 1.09) {
-      ticks.push(delay);
-      total += delay;
-    }
+    const startedAt = performance.now();
     label.classList.add("rolling");
-    let index = 0;
     const step = () => {
-      if (index >= ticks.length) {
+      const progress = (performance.now() - startedAt) / ROLL_TIME_MS;
+      const target = finalText();
+      if (progress >= 1) {
         label.rolling = null;
         label.classList.remove("rolling");
-        label.textContent = finalText();
+        label.textContent = target;
         this.restart(label, "word-new");
         return;
       }
-      let next = decoys[Math.floor(Math.random() * decoys.length)];
-      if (next === label.textContent && decoys.length > 1) next = decoys[(decoys.indexOf(next) + 1) % decoys.length];
-      label.textContent = next;
-      this.restart(label, "roll-tick");
-      label.rolling = setTimeout(step, ticks[index]);
-      index += 1;
+      if (secret) {
+        label.textContent = SECRET_DECOYS[Math.floor(Math.random() * SECRET_DECOYS.length)];
+      } else {
+        const revealed = progress < ROLL_REVEAL_FROM ? 0 : Math.floor(((progress - ROLL_REVEAL_FROM) / (1 - ROLL_REVEAL_FROM)) * target.length);
+        label.textContent = [...target]
+          .map((char, i) => (char === " " ? " " : i < revealed ? char : SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)]))
+          .join("");
+      }
+      label.rolling = setTimeout(step, 70);
     };
     step();
-  },
-
-  decoys() {
-    const visible = store.state ? store.state.players.map((p) => p.word).filter(Boolean) : [];
-    const list = [...new Set([...store.decoys, ...visible])];
-    return list.length ? list : SECRET_DECOYS;
-  },
-
-  async loadDecoys() {
-    if (store.decoys.length || store.decoysLoading) return;
-    store.decoysLoading = true;
-    const batches = await Promise.all([1, 2, 3].map(() => call("randomWords", { count: 10 })));
-    store.decoys = [...new Set(batches.flatMap((r) => (r.ok ? r.words : [])))];
-    store.decoysLoading = false;
   },
 
   reset() {
@@ -1049,7 +1034,7 @@ function updateRoomTimers() {
   const seconds = active ? secondsLeft(store.roomDeadline) : 0;
   for (const node of document.querySelectorAll(".room-timer")) node.textContent = formatDuration(seconds);
   const isHost = active && s.me.canManage;
-  show($("room-timer-lobby"), isHost && s.phase === "lobby");
+  show($("room-timer-lobby"), isHost);
   show($("expiry-warning"), active && seconds <= ROOM_WARNING_SECONDS);
   show($("expiry-warning").querySelector(".btn-extend"), isHost);
 }
@@ -1063,7 +1048,6 @@ setInterval(() => {
 }, 250);
 
 function renderGame(s) {
-  motion.loadDecoys();
   const leaders = leaderIds(s.players);
   renderMyTile(s, leaders);
   renderGrid(s, leaders);
@@ -1204,7 +1188,7 @@ $("btn-clear-notes").onclick = () => ask("Wyczyścić notatki?", clearNotes);
 function render() {
   const s = store.state;
   if (!s || phone.mode) return;
-  store.roomDeadline = performance.now() + s.roomRemainingMs;
+  store.roomDeadline = s.roomRemainingMs === null ? 0 : performance.now() + s.roomRemainingMs;
   if (s.phase === "lobby") {
     showScreen("lobby");
     renderLobby(s);

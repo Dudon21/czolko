@@ -12,10 +12,8 @@ const MIN_POINT_LIMIT = 1;
 const MAX_POINT_LIMIT = 100;
 const MAX_AVATAR_LENGTH = 200000;
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000;
-const ROOM_LIFETIME_MS = 2 * 60 * 60 * 1000;
-const ROOM_EXTEND_MS = 60 * 60 * 1000;
-const ROOM_MAX_REMAINING_MS = 6 * 60 * 60 * 1000;
-const ROOM_WARNING_MS = 10 * 60 * 1000;
+const LOBBY_TIMEOUT_MS = 15 * 60 * 1000;
+const LOBBY_WARNING_MS = 2 * 60 * 1000;
 const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const CAMERA_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const CAMERA_CODE_LENGTH = 6;
@@ -63,7 +61,7 @@ class Room {
     this.endReason = null;
     this.wordSeq = 0;
     this.cleanupTimer = null;
-    this.expiresAt = Date.now() + ROOM_LIFETIME_MS;
+    this.expiresAt = Date.now() + LOBBY_TIMEOUT_MS;
     this.expiryTimer = null;
     this.warningTimer = null;
   }
@@ -248,6 +246,7 @@ class Room {
       if (!this.drawWord(p)) return this.finish("pool");
     }
     this.restartTurnTimer();
+    this.hub.scheduleExpiry(this);
     this.announce(`Gra rozpoczęta! Zaczyna ${starter.nick}`);
   }
 
@@ -432,6 +431,8 @@ class Room {
       p.score = 0;
       p.word = null;
     }
+    this.expiresAt = Date.now() + LOBBY_TIMEOUT_MS;
+    this.hub.scheduleExpiry(this);
     this.announce("Powrót do lobby");
     this.changed();
   }
@@ -487,13 +488,10 @@ class Room {
 
   extendLifetime(player) {
     this.requireManager(player);
-    const now = Date.now();
-    const next = Math.min(this.expiresAt + ROOM_EXTEND_MS, now + ROOM_MAX_REMAINING_MS);
-    if (next <= this.expiresAt) fail("Pokój ma już maksymalny zapas czasu (6 godzin)");
-    this.expiresAt = next;
+    this.requirePhase("lobby");
+    this.expiresAt = Date.now() + LOBBY_TIMEOUT_MS;
     this.hub.scheduleExpiry(this);
-    const minutes = Math.round((next - now) / 60000);
-    this.announce(`Host przedłuża pokój: zostało ${Math.floor(minutes / 60)} h ${minutes % 60} min`);
+    this.announce("Host przedłuża lobby o kolejne 15 minut");
     this.changed();
   }
 
@@ -536,7 +534,7 @@ class Room {
       activeId: this.activeId,
       turnRemainingMs: this.turnEndsAt ? Math.max(0, this.turnEndsAt - Date.now()) : null,
       endReason: this.endReason,
-      roomRemainingMs: Math.max(0, this.expiresAt - Date.now()),
+      roomRemainingMs: this.phase === "lobby" ? Math.max(0, this.expiresAt - Date.now()) : null,
       poolSize: this.pool.length,
       me: {
         id: viewer.id,
@@ -620,19 +618,22 @@ class Registry extends EventEmitter {
   scheduleExpiry(room) {
     clearTimeout(room.expiryTimer);
     clearTimeout(room.warningTimer);
+    room.expiryTimer = null;
+    room.warningTimer = null;
+    if (room.phase !== "lobby") return;
     const remaining = room.expiresAt - Date.now();
     room.expiryTimer = setTimeout(() => this.expireRoom(room), Math.max(0, remaining));
-    if (remaining > ROOM_WARNING_MS) {
+    if (remaining > LOBBY_WARNING_MS) {
       room.warningTimer = setTimeout(() => {
-        room.announce("Pokój wygaśnie za 10 minut. Host może go przedłużyć");
+        room.announce("Lobby zamknie się za 2 minuty, jeśli gra nie wystartuje. Host może przedłużyć");
         room.changed();
-      }, remaining - ROOM_WARNING_MS);
+      }, remaining - LOBBY_WARNING_MS);
     }
   }
 
   expireRoom(room) {
     if (this.rooms.get(room.code) !== room) return;
-    for (const player of room.players) this.emit("removed", room, player, "Pokój wygasł. Załóżcie nowy");
+    for (const player of room.players) this.emit("removed", room, player, "Pokój zamknięty: gra nie wystartowała przez 15 minut");
     room.players = [];
     this.deleteRoom(room);
   }

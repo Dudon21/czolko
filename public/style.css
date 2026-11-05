@@ -1549,3 +1549,38 @@ input.invalid {
   box-shadow: var(--shadow);
   white-space: nowrap;
 }
+
+.word-label.rolling {
+  animation: spin-label 0.9s linear infinite;
+  font-family: "Consolas", "Courier New", monospace;
+  letter-spacing: 2px;
+}
+
+.my-word.rolling {
+  animation: spin-label-plain 0.9s linear infinite;
+}
+
+@keyframes spin-label {
+  from {
+    transform: translateX(-50%) perspective(500px) rotateX(0deg);
+  }
+  to {
+    transform: translateX(-50%) perspective(500px) rotateX(360deg);
+  }
+}
+
+@keyframes spin-label-plain {
+  from {
+    transform: perspective(300px) rotateX(0deg);
+  }
+  to {
+    transform: perspective(300px) rotateX(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .word-label.rolling,
+  .my-word.rolling {
+    animation: none;
+  }
+}
