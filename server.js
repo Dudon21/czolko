@@ -291,6 +291,11 @@ io.on("connection", (socket) => {
     room.adminAdjustScore(player, playerId, delta);
   });
 
+  handle(socket, "admin:reroll", ({ playerId }) => {
+    const { room, player } = currentSession(socket);
+    room.adminRerollWord(player, playerId);
+  });
+
   handle(socket, "admin:endGame", () => {
     const { room, player } = currentSession(socket);
     room.adminEndGame(player);

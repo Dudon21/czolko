@@ -466,6 +466,18 @@ class Room {
     this.removePlayer(target, "Zostałeś wyrzucony z pokoju");
   }
 
+  adminRerollWord(admin, playerId) {
+    this.requireAdmin(admin);
+    this.requirePhase("game");
+    const target = this.requireTarget(playerId);
+    if (!this.pool.some((word) => word.authorId !== target.id)) fail("W puli nie ma już haseł dla tego gracza");
+    if (this.vote && this.vote.guesserId === target.id) this.cancelVote("Głosowanie anulowane, nowe hasło");
+    this.drawWord(target);
+    this.announce(`Host losuje nowe hasło dla gracza ${target.nick}`);
+    this.emit("wordChanged", target, "rerolled", "");
+    this.changed();
+  }
+
   adminEndGame(admin) {
     this.requireAdmin(admin);
     this.requirePhase("game");

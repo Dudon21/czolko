@@ -934,6 +934,12 @@ function renderAdminPanel(s) {
       button.disabled = s.phase !== "game";
       row.appendChild(button);
     }
+    const reroll = el("button", "btn btn-small", "🔄");
+    reroll.title = "Wylosuj nowe hasło";
+    reroll.dataset.admin = "reroll";
+    reroll.dataset.id = p.id;
+    reroll.disabled = s.phase !== "game";
+    row.appendChild(reroll);
     if (p.id !== s.me.id) {
       const kick = el("button", "btn btn-small btn-red", "Wyrzuć");
       kick.dataset.admin = "kick";
@@ -962,6 +968,10 @@ $("admin-panel").addEventListener("click", (event) => {
   if (action === "limit") act("setLimit", { limit: Number($("admin-limit").value) });
   if (action === "score") act("admin:score", { playerId: id, delta: Number(delta) });
   if (action === "restart") ask("Zrestartować grę? Punkty się wyzerują, hasła zostaną wylosowane od nowa.", () => act("admin:restart"));
+  if (action === "reroll" && target) {
+    const label = target.word ? `„${target.word}”` : "obecne hasło";
+    ask(`Wylosować nowe hasło dla gracza ${target.nick}? ${target.id === store.state.me.id ? "Twoje" : label} przepadnie.`, () => act("admin:reroll", { playerId: id }));
+  }
   if (action === "end") ask("Zakończyć grę teraz? Wszyscy zobaczą ranking.", () => act("admin:endGame"));
   if (action === "lobby") ask("Przerwać grę i wrócić do lobby?", () => act("backToLobby"));
   if (action === "kick" && target) ask(`Wyrzucić gracza ${target.nick}?`, () => act("kick", { playerId: id }));
@@ -1204,6 +1214,11 @@ socket.on("avatar", ({ id, data }) => {
 socket.on("event", ({ text }) => toast(text));
 
 socket.on("wordChanged", ({ reason, text }) => {
+  if (reason === "rerolled") {
+    toast("Host wylosował ci nowe hasło");
+    if (notes.value.trim()) ask("Masz nowe hasło. Wyczyścić notatki?", clearNotes);
+    return;
+  }
   if (!notes.value.trim()) return;
   const what = reason === "guessed" ? "Zgadnięte" : "Spasowane";
   ask(`${what}! Twoje hasło to było: ${text}. Wyczyścić notatki?`, clearNotes);
