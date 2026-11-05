@@ -8,6 +8,11 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <script>
+    try {
+      if (localStorage.getItem("czolko-theme") === "dark") document.documentElement.dataset.theme = "dark";
+    } catch {}
+  </script>
 </head>
 <body>
   <section id="screen-home" class="screen hidden">
@@ -235,6 +240,8 @@
       <button class="btn btn-primary" onclick="location.reload()">Wróć tutaj</button>
     </div>
   </div>
+
+  <button id="theme-toggle" class="btn theme-toggle" title="Tryb ciemny / jasny">🌙</button>
 
   <div id="connection" class="connection hidden">Łączenie z serwerem…</div>
   <div id="toasts" class="toasts"></div>

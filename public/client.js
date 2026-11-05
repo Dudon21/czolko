@@ -23,6 +23,21 @@ const storage = {
   }
 };
 
+const THEME_KEY = "czolko-theme";
+
+function applyTheme(theme) {
+  if (theme === "dark") document.documentElement.dataset.theme = "dark";
+  else delete document.documentElement.dataset.theme;
+  $("theme-toggle").textContent = theme === "dark" ? "☀️" : "🌙";
+}
+
+applyTheme(storage.get(THEME_KEY) === "dark" ? "dark" : "light");
+$("theme-toggle").onclick = () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  storage.set(THEME_KEY, next);
+  applyTheme(next);
+};
+
 const store = {
   state: null,
   avatars: new Map(),
