@@ -294,15 +294,26 @@ function renderCameraButtons() {
   show($("btn-camera-game"), video.available);
   show($("btn-phone-mode"), video.available);
   show($("camera-preview"), video.cameraOn || Boolean(me && me.hasPhone));
-  $("btn-camera").textContent = video.cameraOn ? "Wyłącz kamerkę" : "Włącz kamerkę";
-  $("btn-camera").classList.toggle("selected", video.cameraOn);
-  $("btn-camera-game").classList.toggle("selected", video.cameraOn);
-  $("btn-camera-game").title = video.cameraOn ? "Wyłącz kamerkę" : "Włącz kamerkę";
+  for (const id of ["btn-camera", "btn-camera-panel"]) {
+    $(id).textContent = video.cameraOn ? "Wyłącz kamerkę" : "Włącz kamerkę";
+    $(id).classList.toggle("selected", video.cameraOn);
+  }
+  $("btn-camera-game").classList.toggle("selected", video.cameraOn || Boolean(me && me.hasPhone));
+  if (!video.available) show($("camera-panel"), false);
+  if (store.state) {
+    for (const node of document.querySelectorAll(".phone-site")) node.textContent = location.host;
+    for (const node of document.querySelectorAll(".my-camera-code")) node.textContent = store.state.me.cameraCode;
+    for (const node of document.querySelectorAll(".phone-status")) {
+      node.textContent = me && me.hasPhone ? "📱 telefon połączony" : "telefon niepodłączony";
+      node.classList.toggle("tag-ok", Boolean(me && me.hasPhone));
+    }
+  }
 }
 
-for (const id of ["btn-camera", "btn-camera-game"]) {
+for (const id of ["btn-camera", "btn-camera-panel"]) {
   $(id).onclick = () => video.setCamera(!video.cameraOn);
 }
+$("btn-camera-game").onclick = () => $("camera-panel").classList.toggle("hidden");
 
 fetch("/config.json")
   .then((res) => res.json())
@@ -692,10 +703,6 @@ function renderLobby(s) {
   wordsForm.sync();
   const me = findPlayer(s.me.id);
   if (me) bindSlot($("camera-preview"), me);
-  $("phone-site").textContent = location.host;
-  $("my-camera-code").textContent = s.me.cameraCode;
-  $("phone-status").textContent = me && me.hasPhone ? "📱 telefon połączony" : "telefon niepodłączony";
-  $("phone-status").classList.toggle("tag-ok", Boolean(me && me.hasPhone));
   renderCameraButtons();
 
   const list = $("lobby-players");
@@ -1048,6 +1055,7 @@ setInterval(() => {
 }, 250);
 
 function renderGame(s) {
+  renderCameraButtons();
   const leaders = leaderIds(s.players);
   renderMyTile(s, leaders);
   renderGrid(s, leaders);

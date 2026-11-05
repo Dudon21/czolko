@@ -104,10 +104,10 @@
           <p class="status">Opcjonalnie. Bez kamerki inni widzą twój rysunek. Dźwięk zostaje na Discordzie.</p>
           <div id="camera-preview" class="media-slot camera-preview hidden" data-video="1"></div>
           <div class="phone-info">
-            <p>Albo użyj telefonu jako kamerki: otwórz na nim <b id="phone-site"></b>, wybierz „Telefon jako kamerka” i wpisz kod:</p>
+            <p>Albo użyj telefonu jako kamerki: otwórz na nim <b class="phone-site"></b>, wybierz „Telefon jako kamerka” i wpisz kod:</p>
             <div class="row">
-              <span id="my-camera-code" class="code-badge"></span>
-              <span id="phone-status" class="tag"></span>
+              <span class="code-badge my-camera-code"></span>
+              <span class="tag phone-status"></span>
             </div>
           </div>
         </div>
@@ -151,6 +151,18 @@
       <button id="btn-layout" class="btn btn-small" title="Przełącz: mój kafelek w siatce / w rogu">🔲</button>
       <button class="btn btn-small btn-red btn-leave-game" title="Wyjdź z gry">Wyjdź</button>
       <span class="turn-badge my-turn-badge hidden">Czółko</span>
+    </div>
+
+    <div id="camera-panel" class="card camera-panel hidden">
+      <h2>Kamerka</h2>
+      <button id="btn-camera-panel" class="btn btn-small btn-camera">Włącz kamerkę</button>
+      <div class="phone-info">
+        <p>Albo telefon jako kamerka: otwórz na nim <b class="phone-site"></b>, wybierz „Telefon jako kamerka” i wpisz kod:</p>
+        <div class="row">
+          <span class="code-badge my-camera-code"></span>
+          <span class="tag phone-status"></span>
+        </div>
+      </div>
     </div>
 
     <div class="game-layout">

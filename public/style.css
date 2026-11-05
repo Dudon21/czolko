@@ -1584,3 +1584,17 @@ input.invalid {
     animation: none;
   }
 }
+
+.camera-panel {
+  position: fixed;
+  top: 84px;
+  left: 12px;
+  z-index: 25;
+  width: min(360px, calc(100vw - 24px));
+  background: var(--panel);
+  border-color: var(--yellow);
+}
+
+.camera-panel h2 {
+  margin-bottom: 8px;
+}
