@@ -8,6 +8,8 @@ const BRUSH_COLORS = ["#111111", "#e63946", "#f77f00", "#ffd60a", "#2a9d8f", "#4
 const BRUSH_SIZES = [3, 7, 14];
 const SHAPE_TOOLS = ["rect", "square", "triangle", "circle"];
 const UNDO_LIMIT = 30;
+const ROLL_TIME_MS = 5000;
+const SECRET_DECOYS = ["???", "?!?", "¿??", "?¿?", "??¿", "!??", "??!", "???"];
 
 const $ = (id) => document.getElementById(id);
 
@@ -43,6 +45,8 @@ const store = {
   avatars: new Map(),
   voteDeadline: 0,
   turnDeadline: 0,
+  decoys: [],
+  decoysLoading: false,
   selfInGrid: storage.get(`czolko-layout${PROFILE}`) !== "corner",
   replaced: false
 };
@@ -779,10 +783,14 @@ function updateTile(tile, p, s, leaders) {
   tile.score.textContent = p.score;
   tile.nick.textContent = p.connected ? p.nick : `${p.nick} (offline)`;
   tile.root.classList.toggle("me", p.id === s.me.id);
-  const previousWord = tile.word.textContent;
+  const previousWord = tile.word.dataset.word;
   const nextWord = p.id === s.me.id ? "???" : p.word || "—";
-  tile.word.textContent = nextWord;
-  if (previousWord && previousWord !== "—" && previousWord !== nextWord) motion.restart(tile.word, "word-new");
+  tile.word.dataset.word = nextWord;
+  if (previousWord && previousWord !== "—" && nextWord !== "—" && previousWord !== nextWord) {
+    motion.rollWord(tile.word, false);
+  } else if (!tile.word.rolling) {
+    tile.word.textContent = nextWord;
+  }
   bindSlot(tile.slot, p);
 }
 
@@ -871,6 +879,54 @@ const motion = {
         node.style.transformOrigin = "";
       }, { once: true });
     }
+  },
+
+  rollWord(label, secret) {
+    const finalText = () => label.dataset.word || label.textContent;
+    clearTimeout(label.rolling);
+    if (this.reduced) {
+      label.rolling = null;
+      label.textContent = finalText();
+      return;
+    }
+    const decoys = secret ? SECRET_DECOYS : this.decoys();
+    const ticks = [];
+    for (let delay = 45, total = 0; total < ROLL_TIME_MS; delay *= 1.09) {
+      ticks.push(delay);
+      total += delay;
+    }
+    label.classList.add("rolling");
+    let index = 0;
+    const step = () => {
+      if (index >= ticks.length) {
+        label.rolling = null;
+        label.classList.remove("rolling");
+        label.textContent = finalText();
+        this.restart(label, "word-new");
+        return;
+      }
+      let next = decoys[Math.floor(Math.random() * decoys.length)];
+      if (next === label.textContent && decoys.length > 1) next = decoys[(decoys.indexOf(next) + 1) % decoys.length];
+      label.textContent = next;
+      this.restart(label, "roll-tick");
+      label.rolling = setTimeout(step, ticks[index]);
+      index += 1;
+    };
+    step();
+  },
+
+  decoys() {
+    const visible = store.state ? store.state.players.map((p) => p.word).filter(Boolean) : [];
+    const list = [...new Set([...store.decoys, ...visible])];
+    return list.length ? list : SECRET_DECOYS;
+  },
+
+  async loadDecoys() {
+    if (store.decoys.length || store.decoysLoading) return;
+    store.decoysLoading = true;
+    const batches = await Promise.all([1, 2, 3].map(() => call("randomWords", { count: 10 })));
+    store.decoys = [...new Set(batches.flatMap((r) => (r.ok ? r.words : [])))];
+    store.decoysLoading = false;
   },
 
   reset() {
@@ -983,6 +1039,7 @@ setInterval(() => {
 }, 250);
 
 function renderGame(s) {
+  motion.loadDecoys();
   const leaders = leaderIds(s.players);
   renderMyTile(s, leaders);
   renderGrid(s, leaders);
@@ -1347,9 +1404,9 @@ socket.on("avatar", ({ id, data }) => {
 socket.on("event", ({ text }) => toast(text));
 
 socket.on("wordChanged", ({ reason, text }) => {
-  motion.restart($("my-tile").querySelector(".my-word"), "word-new");
+  motion.rollWord($("my-tile").querySelector(".my-word"), true);
   const myGridTile = store.state && tiles.get(store.state.me.id);
-  if (myGridTile) motion.restart(myGridTile.word, "word-new");
+  if (myGridTile) motion.rollWord(myGridTile.word, true);
   if (reason === "rerolled") {
     toast("Host wylosował ci nowe hasło");
     if (notes.value.trim()) ask("Masz nowe hasło. Wyczyścić notatki?", clearNotes);

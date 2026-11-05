@@ -1480,3 +1480,39 @@ input.invalid {
   letter-spacing: 4px;
   border-style: dashed;
 }
+
+.word-label.rolling,
+.my-word.rolling {
+  background: var(--yellow);
+  color: var(--ink);
+  box-shadow: 0 0 0 4px rgba(255, 210, 63, 0.45), 0 6px 0 rgba(0, 0, 0, 0.3);
+}
+
+.word-label.roll-tick {
+  animation: roll-tick 0.12s ease-out;
+}
+
+.my-word.roll-tick {
+  animation: roll-tick-plain 0.12s ease-out;
+}
+
+@keyframes roll-tick {
+  from {
+    opacity: 0.2;
+    transform: translate(-50%, -45%);
+  }
+}
+
+@keyframes roll-tick-plain {
+  from {
+    opacity: 0.2;
+    transform: translateY(-45%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .word-label.roll-tick,
+  .my-word.roll-tick {
+    animation: none;
+  }
+}
