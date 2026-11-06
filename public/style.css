@@ -2508,3 +2508,32 @@ input.invalid {
     animation-iteration-count: 1;
   }
 }
+
+.music-toggle {
+  position: fixed;
+  right: 12px;
+  bottom: 116px;
+  z-index: 40;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 1.2rem;
+}
+
+.music-toggle.off {
+  opacity: 0.55;
+  filter: grayscale(1);
+}
+
+.music-toggle.off::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  top: 50%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--red);
+  transform: rotate(-40deg);
+}
