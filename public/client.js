@@ -345,11 +345,8 @@ const music = {
     if (!this.enabled || this.timer || document.hidden) return;
     const ctx = sfx.ensure();
     if (!ctx) return;
-    if (!this.gain) {
-      this.gain = ctx.createGain();
-      this.gain.connect(ctx.destination);
-    }
-    this.gain.gain.cancelScheduledValues(ctx.currentTime);
+    this.gain = ctx.createGain();
+    this.gain.connect(ctx.destination);
     this.gain.gain.setValueAtTime(0.0001, ctx.currentTime);
     this.gain.gain.exponentialRampToValueAtTime(MUSIC_VOLUME, ctx.currentTime + 1.5);
     this.nextTime = ctx.currentTime + 0.1;
@@ -359,11 +356,11 @@ const music = {
   stop() {
     clearInterval(this.timer);
     this.timer = null;
-    if (this.gain && sfx.ctx) {
-      const now = sfx.ctx.currentTime;
-      this.gain.gain.cancelScheduledValues(now);
-      this.gain.gain.setValueAtTime(this.gain.gain.value, now);
-      this.gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+    if (this.gain) {
+      try {
+        this.gain.disconnect();
+      } catch {}
+      this.gain = null;
     }
   },
 
@@ -383,7 +380,7 @@ const music = {
 
   schedule() {
     const ctx = sfx.ctx;
-    if (!ctx) return;
+    if (!ctx || !this.enabled || !this.gain) return this.stop();
     if (this.nextTime < ctx.currentTime) this.nextTime = ctx.currentTime + 0.05;
     while (this.nextTime < ctx.currentTime + 0.25) {
       this.playStep(this.nextTime);
@@ -415,17 +412,17 @@ const music = {
 };
 
 for (const eventName of ["pointerdown", "keydown"]) {
-  document.addEventListener(eventName, () => {
+  document.addEventListener(eventName, (event) => {
     sfx.ensure();
-    music.start();
+    if (!(event.target instanceof Element && event.target.closest("#music-toggle"))) music.start();
   }, { once: true, capture: true });
 }
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
-    clearInterval(music.timer);
-    music.timer = null;
+    music.stop();
   } else if (music.enabled && sfx.ctx) {
+    music.stop();
     music.start();
   }
 });
@@ -554,6 +551,9 @@ const fx = {
         this.afterBusy(() => {
           if (store.state && store.state.activeId === store.state.me.id) this.yourTurn();
         });
+        break;
+      case "next":
+        sfx.play("click", 0);
         break;
       case "turn":
         this.afterBusy(() => {
@@ -1762,10 +1762,7 @@ $("btn-layout").onclick = () => {
   render();
 };
 
-$("btn-next").onclick = () => {
-  sfx.play("click", 0);
-  act("next");
-};
+$("btn-next").onclick = () => act("next");
 
 const nextKey = {
   storageKey: "czolko-next-key",

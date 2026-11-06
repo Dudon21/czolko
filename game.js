@@ -522,6 +522,7 @@ class Room {
   next(player) {
     this.requireTurn(player);
     this.clearHelp();
+    this.fx("next", { playerId: player.id });
     this.advanceTurn();
     this.changed();
   }
