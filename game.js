@@ -322,7 +322,7 @@ class Room {
     if (detective) awards.push({ icon: "🕵️", title: "Detektyw", text: `${detective.nick}: ${detective.stats.reveals}× odkrył(a) autora` });
     const authors = new Map();
     for (const h of this.history) {
-      if (h.outcome === "rerolled") continue;
+      if (h.outcome === "rerolled" || h.outcome === "unfinished") continue;
       const entry = authors.get(h.authorId) || { nick: h.authorNick, passes: 0, ms: 0, count: 0 };
       if (h.outcome === "passed") entry.passes += 1;
       entry.ms += h.ms;
@@ -335,6 +335,7 @@ class Room {
     }
     const history = this.history.map((h) => ({
       text: h.text,
+      holderId: h.holderId,
       holderNick: h.holderNick,
       authorNick: h.authorNick,
       outcome: h.outcome,
@@ -633,6 +634,7 @@ class Room {
     this.clearVote();
     this.clearHelp();
     this.stopTurnTimer();
+    if (this.phase === "game") for (const p of this.players) this.record(p, "unfinished");
     this.phase = "end";
     this.endReason = reason;
     this.activeId = null;

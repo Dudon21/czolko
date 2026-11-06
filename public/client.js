@@ -1374,14 +1374,52 @@ function renderEnd(s) {
   show($("awards-box"), summary.awards.length > 0);
   const history = $("history");
   history.replaceChildren();
-  const outcomes = { guessed: "✅", passed: "🙈", rerolled: "🔄" };
+  const outcomes = {
+    guessed: ["✅", "zgadł(a)"],
+    passed: ["🙈", "pass"],
+    rerolled: ["🔄", "zmienione przez hosta"],
+    unfinished: ["⏳", "nie zdążył(a)"]
+  };
+  const groups = new Map();
+  for (const r of results) groups.set(r.id, { nick: r.nick, color: r.color, items: [] });
   for (const h of summary.history) {
-    const extras = [];
-    if (h.helps) extras.push("🆘" + (h.helps > 1 ? "×" + h.helps : ""));
-    if (h.revealed) extras.push("🕵️");
-    history.appendChild(el("li", "history-item", outcomes[h.outcome] + " " + h.holderNick + ": „" + h.text + "” (od " + h.authorNick + ", " + h.seconds + " s) " + extras.join(" ")));
+    if (!groups.has(h.holderId)) groups.set(h.holderId, { nick: h.holderNick + " (wyszedł)", color: "#888888", items: [] });
+    groups.get(h.holderId).items.push(h);
+  }
+  for (const group of groups.values()) {
+    if (!group.items.length) continue;
+    const card = el("div", "history-player");
+    card.style.setProperty("--pc", group.color);
+    const guessed = group.items.filter((h) => h.outcome === "guessed");
+    const total = guessed.reduce((sum, h) => sum + h.seconds, 0);
+    const stats = guessed.length
+      ? "zgadnięte: " + guessed.length + " · średnio " + formatSeconds(Math.round(total / guessed.length))
+      : "nic nie zgadł(a) 🫠";
+    const head = el("div", "history-head");
+    head.append(el("span", "history-nick", group.nick), el("span", "history-stats", stats));
+    const list = el("ol", "history-list");
+    for (const h of group.items) {
+      const [icon, text] = outcomes[h.outcome] || ["•", ""];
+      const item = el("li", "history-item history-" + h.outcome);
+      const extras = [];
+      if (h.helps) extras.push("🆘" + (h.helps > 1 ? "×" + h.helps : ""));
+      if (h.revealed) extras.push("🕵️");
+      item.append(
+        el("span", "history-icon", icon),
+        el("span", "history-word", h.text),
+        el("span", "history-author", "od " + h.authorNick),
+        el("span", "history-time", formatSeconds(h.seconds) + " · " + text + (extras.length ? " " + extras.join(" ") : ""))
+      );
+      list.appendChild(item);
+    }
+    card.append(head, list);
+    history.appendChild(card);
   }
   show($("history-box"), summary.history.length > 0);
+}
+
+function formatSeconds(total) {
+  return total >= 60 ? Math.floor(total / 60) + " min " + (total % 60) + " s" : total + " s";
 }
 
 function findResult(s, id) {
