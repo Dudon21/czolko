@@ -106,6 +106,390 @@ function fmtScore(value) {
   return String(Math.round(value * 10) / 10).replace(".", ",").replace("-", "−");
 }
 
+const VOLUME_KEY = "czolko-volume";
+const VOLUME_LEVELS = [0.7, 0.35, 0];
+const VOLUME_ICONS = ["🔊", "🔉", "🔇"];
+const TURN_TOTAL_MS = 45000;
+const REACTIONS = ["😂", "🔥", "👏", "😱", "🤦", "🤔", "💀", "❤️"];
+
+const sfx = {
+  ctx: null,
+  master: null,
+  noiseBuffer: null,
+  level: (() => {
+    const saved = storage.get(VOLUME_KEY);
+    const value = saved === null ? VOLUME_LEVELS[0] : Number(saved);
+    return Number.isFinite(value) ? value : VOLUME_LEVELS[0];
+  })(),
+  lastPlayed: new Map(),
+
+  ensure() {
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return null;
+      this.ctx = new AudioCtx();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.level;
+      this.master.connect(this.ctx.destination);
+    }
+    if (this.ctx.state === "suspended") this.ctx.resume().catch(() => {});
+    return this.ctx;
+  },
+
+  setLevel(value) {
+    this.level = value;
+    storage.set(VOLUME_KEY, String(value));
+    if (this.master) this.master.gain.value = value;
+  },
+
+  tone(freq, start, duration, options = {}) {
+    const { type = "sine", vol = 0.2, slide = 0, attack = 0.01, vibrato = 0 } = options;
+    const ctx = this.ctx;
+    const t = ctx.currentTime + start;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    if (slide) osc.frequency.exponentialRampToValueAtTime(slide, t + duration);
+    if (vibrato) {
+      const lfo = ctx.createOscillator();
+      const depth = ctx.createGain();
+      lfo.frequency.value = vibrato;
+      depth.gain.value = freq * 0.035;
+      lfo.connect(depth);
+      depth.connect(osc.frequency);
+      lfo.start(t);
+      lfo.stop(t + duration + 0.05);
+    }
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(vol, t + attack);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    osc.connect(gain);
+    gain.connect(this.master);
+    osc.start(t);
+    osc.stop(t + duration + 0.05);
+  },
+
+  noise(start, duration, options = {}) {
+    const { vol = 0.15, freq = 2000, q = 0.8, filter = "bandpass" } = options;
+    const ctx = this.ctx;
+    if (!this.noiseBuffer) {
+      this.noiseBuffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+      const data = this.noiseBuffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    }
+    const t = ctx.currentTime + start;
+    const source = ctx.createBufferSource();
+    source.buffer = this.noiseBuffer;
+    const band = ctx.createBiquadFilter();
+    band.type = filter;
+    band.frequency.value = freq;
+    band.Q.value = q;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    source.connect(band);
+    band.connect(gain);
+    gain.connect(this.master);
+    source.start(t, Math.random() * 0.5);
+    source.stop(t + duration + 0.05);
+  },
+
+  drumroll(length, start = 0) {
+    for (let t = 0; t < length; t += 0.045) {
+      this.noise(start + t, 0.06, { vol: 0.04 + 0.16 * (t / length), freq: 2400 });
+    }
+  },
+
+  chord(notes, start, duration, type, vol) {
+    for (const note of notes) this.tone(note, start, duration, { type, vol });
+  },
+
+  sounds: {
+    tick() { this.tone(1500, 0, 0.04, { type: "square", vol: 0.04 }); },
+    tickHard() {
+      this.tone(1900, 0, 0.06, { type: "square", vol: 0.09 });
+      this.noise(0, 0.03, { vol: 0.05, freq: 5000 });
+    },
+    myTurn() {
+      [523, 659, 784, 1047].forEach((f, i) => this.tone(f, i * 0.08, 0.28, { type: "triangle", vol: 0.22 }));
+      this.tone(1568, 0.34, 0.4, { type: "sine", vol: 0.08 });
+    },
+    turn() {
+      this.tone(660, 0, 0.12, { vol: 0.12 });
+      this.tone(880, 0.1, 0.2, { vol: 0.12 });
+    },
+    countBeep() { this.tone(440, 0, 0.18, { type: "square", vol: 0.1 }); },
+    go() {
+      this.tone(880, 0, 0.55, { type: "square", vol: 0.12 });
+      this.tone(1320, 0, 0.55, { type: "triangle", vol: 0.1 });
+      this.noise(0, 0.5, { vol: 0.08, freq: 7000, filter: "highpass" });
+    },
+    voteStart() { this.drumroll(1.0); },
+    guessed() {
+      [392, 523, 659, 784].forEach((f, i) => this.tone(f, i * 0.1, 0.18, { type: "square", vol: 0.09 }));
+      this.chord([523, 659, 784, 1047], 0.42, 1.0, "triangle", 0.11);
+      this.noise(0.42, 0.7, { vol: 0.1, freq: 6000, filter: "highpass" });
+      this.tone(2093, 0.5, 0.25, { vol: 0.05 });
+      this.tone(2637, 0.6, 0.3, { vol: 0.05 });
+    },
+    voteFail() {
+      this.tone(150, 0, 0.65, { type: "sawtooth", vol: 0.11, slide: 85 });
+      this.tone(156, 0, 0.65, { type: "sawtooth", vol: 0.08, slide: 90 });
+    },
+    timeout() {
+      this.tone(880, 0, 0.12, { type: "square", vol: 0.1 });
+      this.tone(880, 0.18, 0.12, { type: "square", vol: 0.1 });
+      this.tone(220, 0.38, 0.6, { type: "sawtooth", vol: 0.1, slide: 110 });
+    },
+    pass() {
+      [[392, 0, 0.3], [370, 0.32, 0.3], [349, 0.64, 0.3]].forEach(([f, s, d]) => this.tone(f, s, d, { type: "sawtooth", vol: 0.07 }));
+      this.tone(330, 0.96, 1.0, { type: "sawtooth", vol: 0.08, vibrato: 6, slide: 300 });
+    },
+    help() {
+      for (const ring of [0, 0.55]) {
+        for (let k = 0; k < 8; k++) {
+          this.tone(440, ring + k * 0.05, 0.045, { vol: 0.09 });
+          this.tone(480, ring + k * 0.05, 0.045, { vol: 0.09 });
+        }
+      }
+    },
+    helpEnd() { this.tone(700, 0, 0.2, { vol: 0.1, slide: 380 }); },
+    author() {
+      this.tone(220, 0, 1.1, { type: "triangle", vol: 0.07, vibrato: 5 });
+      [440, 523, 659, 831].forEach((f, i) => this.tone(f, i * 0.15, 0.5, { vol: 0.09 }));
+    },
+    roll() {
+      let t = 0;
+      let step = 0.06;
+      while (t < 4.7) {
+        this.tone(900 + Math.random() * 700, t, 0.03, { type: "square", vol: 0.03 });
+        t += step;
+        step *= 1.07;
+      }
+      this.tone(1320, 5.0, 0.45, { type: "triangle", vol: 0.16 });
+      this.tone(1760, 5.05, 0.45, { type: "sine", vol: 0.08 });
+    },
+    refill() {
+      for (let i = 0; i < 6; i++) this.noise(i * 0.07 + Math.random() * 0.03, 0.05, { vol: 0.14, freq: 1800 + Math.random() * 1500, q: 3 });
+      this.tone(1047, 0.5, 0.3, { type: "triangle", vol: 0.1 });
+    },
+    join() {
+      this.tone(500, 0, 0.09, { vol: 0.12, slide: 900 });
+      this.tone(700, 0.1, 0.1, { vol: 0.12, slide: 1300 });
+    },
+    ready() {
+      this.tone(880, 0, 0.15, { type: "triangle", vol: 0.13 });
+      this.tone(1175, 0.08, 0.3, { type: "triangle", vol: 0.13 });
+    },
+    reaction() { this.tone(500 + Math.random() * 400, 0, 0.08, { vol: 0.07, slide: 1500 }); },
+    end() {
+      this.drumroll(1.5);
+      this.chord([523, 659, 784], 1.55, 0.25, "square", 0.07);
+      this.chord([587, 740, 880], 1.85, 0.25, "square", 0.07);
+      this.chord([659, 831, 988, 1319], 2.15, 1.6, "triangle", 0.1);
+      this.noise(2.15, 1.2, { vol: 0.12, freq: 6000, filter: "highpass" });
+    },
+    preview() { this.tone(988, 0, 0.18, { type: "triangle", vol: 0.15 }); }
+  },
+
+  play(name, cooldownMs = 120) {
+    if (!this.level) return;
+    const now = performance.now();
+    if (now - (this.lastPlayed.get(name) || 0) < cooldownMs) return;
+    this.lastPlayed.set(name, now);
+    if (!this.ensure()) return;
+    const sound = this.sounds[name];
+    if (!sound) return;
+    try {
+      sound.call(this);
+    } catch {}
+  }
+};
+
+for (const eventName of ["pointerdown", "keydown"]) {
+  document.addEventListener(eventName, () => sfx.ensure(), { once: true, capture: true });
+}
+
+const fx = {
+  busyUntil: 0,
+  reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+
+  overlay(content, className, ms) {
+    const node = el("div", "fx-overlay " + className);
+    if (typeof content === "string") node.textContent = content;
+    else node.append(...content);
+    document.body.appendChild(node);
+    setTimeout(() => node.remove(), ms);
+    return node;
+  },
+
+  inGame() {
+    return !$("screen-game").classList.contains("hidden");
+  },
+
+  anchor(playerId) {
+    const tile = tiles.get(playerId);
+    if (tile && tile.root.isConnected) return tile.frame;
+    if (store.state && playerId === store.state.me.id && this.inGame()) return $("my-tile");
+    return null;
+  },
+
+  nick(playerId) {
+    const p = findPlayer(playerId);
+    return p ? p.nick : "?";
+  },
+
+  countdown() {
+    const steps = ["3", "2", "1", "START!"];
+    steps.forEach((text, i) => {
+      setTimeout(() => {
+        sfx.play(i === steps.length - 1 ? "go" : "countBeep", 0);
+        this.overlay(text, i === steps.length - 1 ? "fx-count fx-go" : "fx-count", 700);
+      }, i * 650);
+    });
+    this.busyUntil = performance.now() + steps.length * 650;
+  },
+
+  yourTurn() {
+    sfx.play("myTurn");
+    this.overlay("TWOJA TURA!", "fx-yourturn", 1600);
+  },
+
+  stamp(playerId, text, className) {
+    const anchor = this.anchor(playerId);
+    if (!anchor) return;
+    const node = el("div", "fx-stamp " + className, text);
+    anchor.appendChild(node);
+    setTimeout(() => node.remove(), 1700);
+    const shaker = anchor.closest(".ptile") || anchor;
+    motion.restart(shaker, "fx-shake");
+  },
+
+  rain(count = 70) {
+    if (this.reduced) return;
+    const colors = ["#ffd23f", "#ff4d6d", "#06d6a0", "#4cc9f0", "#b388ff", "#ffffff", "#ff8fab"];
+    const box = el("div", "fx-rain");
+    for (let i = 0; i < count; i++) {
+      const piece = el("span");
+      piece.style.left = Math.random() * 100 + "vw";
+      piece.style.background = colors[i % colors.length];
+      piece.style.setProperty("--fall", (1.6 + Math.random() * 1.6).toFixed(2) + "s");
+      piece.style.setProperty("--delay", (Math.random() * 0.6).toFixed(2) + "s");
+      piece.style.setProperty("--spin", Math.round(Math.random() * 1080 - 540) + "deg");
+      piece.style.setProperty("--drift", Math.round(Math.random() * 160 - 80) + "px");
+      box.appendChild(piece);
+    }
+    document.body.appendChild(box);
+    setTimeout(() => box.remove(), 3800);
+  },
+
+  guessed(playerId) {
+    const isMe = store.state && playerId === store.state.me.id;
+    sfx.play("guessed");
+    this.overlay([el("div", "fx-big", isMe ? "ZGADŁEŚ!" : "ZGADUJE!"), el("div", "fx-sub", isMe ? "+1 punkt" : this.nick(playerId) + " +1")], "fx-win", 1900);
+    this.rain();
+    this.busyUntil = performance.now() + 1700;
+  },
+
+  reveal(text, reason) {
+    const card = el("div", "fx-reveal-card");
+    card.append(
+      el("div", "fx-reveal-label", reason === "guessed" ? "Zgadnięte! Twoje hasło:" : "Spasowane. Twoje hasło:"),
+      el("div", "fx-reveal-word", text || "?")
+    );
+    this.overlay([card], "fx-reveal" + (reason === "guessed" ? " fx-reveal-ok" : " fx-reveal-pass"), 2800);
+  },
+
+  reaction(playerId, emoji) {
+    sfx.play("reaction", 60);
+    const anchor = this.anchor(playerId);
+    const rect = anchor ? anchor.getBoundingClientRect() : { left: window.innerWidth / 2 - 20, width: 40, top: window.innerHeight - 80 };
+    const node = el("div", "fx-reaction", emoji);
+    node.style.left = rect.left + rect.width / 2 + (Math.random() * 60 - 30) + "px";
+    node.style.top = rect.top + 20 + "px";
+    node.style.setProperty("--drift", Math.round(Math.random() * 80 - 40) + "px");
+    node.style.setProperty("--tilt", Math.round(Math.random() * 40 - 20) + "deg");
+    document.body.appendChild(node);
+    setTimeout(() => node.remove(), 2000);
+  },
+
+  afterBusy(callback) {
+    const wait = Math.max(0, this.busyUntil - performance.now());
+    setTimeout(callback, wait);
+  },
+
+  handle(event) {
+    const s = store.state;
+    const me = s ? s.me.id : null;
+    const id = event.playerId;
+    switch (event.type) {
+      case "join":
+        if (id !== me) sfx.play("join");
+        break;
+      case "ready":
+        sfx.play("ready");
+        break;
+      case "start":
+        this.countdown();
+        this.afterBusy(() => {
+          if (store.state && store.state.activeId === store.state.me.id) this.yourTurn();
+        });
+        break;
+      case "turn":
+        this.afterBusy(() => {
+          if (!store.state || store.state.activeId !== id) return;
+          if (id === store.state.me.id) this.yourTurn();
+          else sfx.play("turn");
+        });
+        break;
+      case "timeout":
+        sfx.play("timeout");
+        this.stamp(id, "CZAS!", "stamp-time");
+        this.busyUntil = performance.now() + 900;
+        break;
+      case "pass":
+        sfx.play("pass");
+        this.stamp(id, "PASS", "stamp-pass");
+        break;
+      case "voteStart":
+        sfx.play("voteStart");
+        this.stamp(id, "?!", "stamp-vote");
+        break;
+      case "voteFail":
+        sfx.play("voteFail");
+        this.stamp(id, "✖", "stamp-fail");
+        break;
+      case "guessed":
+        this.guessed(id);
+        break;
+      case "help":
+        sfx.play("help");
+        break;
+      case "helpEnd":
+        sfx.play("helpEnd");
+        break;
+      case "author":
+        sfx.play("author");
+        this.stamp(id, "🕵️", "stamp-author");
+        break;
+      case "reroll":
+        sfx.play("roll", 1000);
+        break;
+      case "refill":
+        sfx.play("refill");
+        break;
+      case "end":
+        sfx.play("end");
+        setTimeout(() => this.rain(90), 2100);
+        break;
+      case "reaction":
+        this.reaction(id, event.emoji);
+        break;
+    }
+  }
+};
+
 function findPlayer(id) {
   return store.state ? store.state.players.find((p) => p.id === id) : null;
 }
@@ -851,6 +1235,7 @@ function updateTile(tile, p, s, leaders) {
   tile.root.classList.toggle("active", s.activeId === p.id);
   tile.root.classList.toggle("offline", !p.connected);
   tile.root.classList.toggle("help-main", Boolean(role));
+  tile.root.classList.toggle("voting", Boolean(s.vote && s.vote.guesserId === p.id));
   tile.root.classList.toggle("helper", role === "helper");
   show(tile.crown, leaders.has(p.id));
   show(tile.badge, s.activeId === p.id || role === "helper");
@@ -881,6 +1266,7 @@ const motion = {
   lastScores: new Map(),
   lastActiveId: null,
   lastHelpKey: "",
+  lastRollSound: 0,
 
   restart(node, className) {
     node.classList.remove(className);
@@ -973,6 +1359,7 @@ const motion = {
       return;
     }
     const startedAt = performance.now();
+    if (fx.inGame()) sfx.play("roll", 1500);
     label.classList.add("rolling");
     const step = () => {
       const progress = (performance.now() - startedAt) / ROLL_TIME_MS;
@@ -1057,6 +1444,7 @@ function renderMyTile(s, leaders) {
   const root = $("my-tile");
   root.style.setProperty("--pc", me.color);
   root.classList.toggle("active", s.activeId === me.id);
+  root.classList.toggle("voting", Boolean(s.vote && s.vote.guesserId === me.id));
   root.classList.toggle("compact", store.selfInGrid || Boolean(helpRole(s, me.id)));
   $("btn-layout").classList.toggle("selected", !store.selfInGrid);
   bindSlot(root.querySelector(".media-slot"), me);
@@ -1189,6 +1577,18 @@ function updateVoteTimers() {
 
 function updateTurnTimers() {
   const seconds = store.turnDeadline ? secondsLeft(store.turnDeadline) : null;
+  const inGame = !$("screen-game").classList.contains("hidden");
+  const hurry = inGame && seconds !== null && seconds <= 10;
+  document.body.classList.toggle("hurry", hurry);
+  show($("turn-bar"), inGame && seconds !== null);
+  if (store.turnDeadline) {
+    const fraction = Math.max(0, Math.min(1, (store.turnDeadline - performance.now()) / TURN_TOTAL_MS));
+    const fill = $("turn-bar").firstElementChild;
+    fill.style.transform = "scaleX(" + fraction.toFixed(4) + ")";
+    fill.classList.toggle("low", hurry);
+  }
+  if (hurry && seconds > 0 && seconds !== store.lastTick) sfx.play(seconds <= 5 ? "tickHard" : "tick", 0);
+  store.lastTick = hurry ? seconds : null;
   for (const node of document.querySelectorAll(".turn-timer")) {
     node.textContent = seconds === null ? "" : `⏱ ${seconds} s`;
     node.classList.toggle("low", seconds !== null && seconds <= 10);
@@ -1766,10 +2166,38 @@ socket.on("wordChanged", ({ reason, text }) => {
     if (notes.value.trim()) ask("Masz nowe hasło. Wyczyścić notatki?", clearNotes);
     return;
   }
+  fx.reveal(text, reason);
   if (!notes.value.trim()) return;
   const what = reason === "guessed" ? "Zgadnięte" : "Spasowane";
-  ask(`${what}! Twoje hasło to było: ${text}. Wyczyścić notatki?`, clearNotes);
+  setTimeout(() => ask(`${what}! Twoje hasło to było: ${text}. Wyczyścić notatki?`, clearNotes), 2900);
 });
+
+socket.on("fx", (event) => fx.handle(event));
+
+function renderSoundToggle() {
+  const index = Math.max(0, VOLUME_LEVELS.indexOf(sfx.level));
+  $("sound-toggle").textContent = VOLUME_ICONS[index];
+}
+
+$("sound-toggle").onclick = () => {
+  const index = Math.max(0, VOLUME_LEVELS.indexOf(sfx.level));
+  sfx.setLevel(VOLUME_LEVELS[(index + 1) % VOLUME_LEVELS.length]);
+  renderSoundToggle();
+  sfx.play("preview", 0);
+};
+renderSoundToggle();
+
+let lastReactionAt = 0;
+for (const emoji of REACTIONS) {
+  const button = el("button", "btn reaction-btn", emoji);
+  button.onclick = () => {
+    const now = performance.now();
+    if (now - lastReactionAt < 300) return;
+    lastReactionAt = now;
+    call("react", { emoji });
+  };
+  $("reactions").appendChild(button);
+}
 
 socket.on("kicked", ({ reason }) => goHome(reason));
 

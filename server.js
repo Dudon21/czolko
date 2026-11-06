@@ -12,6 +12,8 @@ const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const MAX_ADMIN_ATTEMPTS = 5;
 const MAX_CAMERA_ATTEMPTS = 10;
+const REACTIONS = ["😂", "🔥", "👏", "😱", "🤦", "🤔", "💀", "❤️"];
+const REACTION_COOLDOWN_MS = 300;
 const LIVEKIT_URL = process.env.LIVEKIT_URL || "";
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || "";
 const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || "";
@@ -71,6 +73,8 @@ registry.on("change", (room) => {
 });
 
 registry.on("event", (room, text) => sendToRoom(room, "event", { text }));
+
+registry.on("fx", (room, payload) => sendToRoom(room, "fx", payload));
 
 registry.on("avatar", (room, player) => sendToRoom(room, "avatar", { id: player.id, data: player.avatar }));
 
@@ -273,6 +277,15 @@ io.on("connection", (socket) => {
   });
 
   handle(socket, "cameraLeave", () => leavePhone(socket));
+
+  handle(socket, "react", ({ emoji }) => {
+    const { room, player } = currentSession(socket);
+    if (!REACTIONS.includes(emoji)) fail("Nieznana reakcja");
+    const now = Date.now();
+    if (now - (socket.data.lastReaction || 0) < REACTION_COOLDOWN_MS) return;
+    socket.data.lastReaction = now;
+    sendToRoom(room, "fx", { type: "reaction", playerId: player.id, emoji });
+  });
 
   handle(socket, "startGame", () => {
     const { room, player } = currentSession(socket);

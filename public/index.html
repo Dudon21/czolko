@@ -196,6 +196,7 @@
       <main class="game-main">
         <div id="game-clock" class="game-clock hidden">⏰ <span class="game-timer"></span></div>
         <div id="turn-banner" class="turn-banner"></div>
+        <div id="turn-bar" class="turn-bar hidden"><div class="turn-bar-fill"></div></div>
         <div id="help-bar" class="help-bar hidden">
           <span id="help-text"></span>
           <span class="help-timer"></span>
@@ -227,6 +228,7 @@
       </main>
 
       <aside class="card notes">
+        <div id="reactions" class="reactions"></div>
         <div class="notes-header">
           <h2>Notatnik</h2>
           <button id="btn-clear-notes" class="btn btn-small">Wyczyść</button>
@@ -329,6 +331,7 @@
     </div>
   </div>
 
+  <button id="sound-toggle" class="btn sound-toggle" title="Dźwięk: głośno / cicho / wyłączony">🔊</button>
   <button id="theme-toggle" class="btn theme-toggle" title="Tryb ciemny / jasny">🌙</button>
 
   <div id="expiry-warning" class="expiry-warning hidden">

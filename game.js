@@ -95,6 +95,10 @@ class Room {
     this.emit("event", text);
   }
 
+  fx(type, data = {}) {
+    this.emit("fx", { type, ...data });
+  }
+
   getPlayer(id) {
     return this.players.find((p) => p.id === id) || null;
   }
@@ -147,6 +151,7 @@ class Room {
     };
     this.players.push(player);
     if (!this.hostId) this.hostId = player.id;
+    this.fx("join", { playerId: player.id });
     return player;
   }
 
@@ -216,6 +221,7 @@ class Room {
       seen.add(key);
     }
     player.words = words;
+    if (!player.wordsReady) this.fx("ready", { playerId: player.id });
     player.wordsReady = true;
     this.changed();
   }
@@ -356,6 +362,7 @@ class Room {
     player.word.authorRevealed = true;
     player.score -= AUTHOR_REVEAL_COST;
     this.stat(player, "reveals");
+    this.fx("author", { playerId: player.id });
     this.announce(`🕵️ ${player.nick} odkrywa autora hasła (−0,5): ${authorNick}`);
     this.changed();
   }
@@ -415,6 +422,7 @@ class Room {
     }
     this.restartTurnTimer();
     this.hub.scheduleExpiry(this);
+    this.fx("start", { playerId: starter.id });
     this.announce(`Gra rozpoczęta! Zaczyna ${starter.nick}`);
   }
 
@@ -433,6 +441,7 @@ class Room {
       if (this.phase !== "game" || this.vote || this.help || this.activeId !== activeId) return;
       const player = this.getPlayer(activeId);
       this.announce(`Czas minął! ${player ? player.nick : "Gracz"} traci turę`);
+      this.fx("timeout", { playerId: activeId });
       this.advanceTurn();
       this.changed();
     }, TURN_TIME_MS);
@@ -451,6 +460,7 @@ class Room {
       this.pool.push({ id: ++this.wordSeq, text, authorId: null, custom: false });
       this.usedTexts.add(text.toLocaleLowerCase("pl"));
     }
+    if (fresh.length) this.fx("refill");
     if (fresh.length) this.announce(`🎲 Pula się skończyła, dorzucam ${fresh.length} haseł z losowania`);
     return fresh.length > 0;
   }
@@ -500,6 +510,7 @@ class Room {
     if (!next) next = this.players[(start + 1) % count];
     this.activeId = next.id;
     this.restartTurnTimer();
+    this.fx("turn", { playerId: next.id });
   }
 
   requireTurn(player) {
@@ -524,6 +535,7 @@ class Room {
     player.score -= 1;
     player.word = null;
     this.announce(`${player.nick} pasuje (−1). Hasło: ${word ? word.text : "?"}`);
+    this.fx("pass", { playerId: player.id });
     this.emit("wordChanged", player, "passed", word ? word.text : "");
     if (!this.drawWord(player)) this.finish("pool");
     else this.restartTurnTimer();
@@ -547,6 +559,7 @@ class Room {
     }, VOTE_TIME_MS);
     this.vote = vote;
     this.stopTurnTimer();
+    this.fx("voteStart", { playerId: player.id });
     this.announce(`${player.nick} mówi, że zgadł(a)! Głosujcie`);
     this.changed();
   }
@@ -568,6 +581,7 @@ class Room {
       this.changed();
     }, HELP_TIME_MS);
     this.help = help;
+    this.fx("help", { playerId: player.id, helperId: helper.id });
     this.announce(`🆘 ${player.nick} prosi o pomoc: ${helper.nick}. 60 sekund rozmowy!`);
     this.changed();
   }
@@ -583,6 +597,7 @@ class Room {
 
   endHelpNow(message) {
     if (!this.help) return;
+    this.fx("helpEnd");
     this.clearHelp();
     this.restartTurnTimer();
     this.announce(message);
@@ -636,6 +651,7 @@ class Room {
 
   cancelVote(message) {
     if (!this.vote) return;
+    this.fx("voteFail", { playerId: this.vote.guesserId });
     this.clearVote();
     this.restartTurnTimer();
     this.announce(message);
@@ -651,6 +667,7 @@ class Room {
     guesser.score += 1;
     guesser.word = null;
     this.announce(`${guesser.nick} zgaduje! (+1) Hasło: ${word ? word.text : "?"}`);
+    this.fx("guessed", { playerId: guesser.id });
     this.emit("wordChanged", guesser, "guessed", word ? word.text : "");
     if (this.reachedLimit(guesser)) return this.finish("limit");
     if (!this.drawWord(guesser)) return this.finish("pool");
@@ -663,9 +680,11 @@ class Room {
     this.clearHelp();
     this.stopTurnTimer();
     if (this.phase === "game") for (const p of this.players) this.record(p, "unfinished");
+    const wasPlaying = this.phase === "game";
     this.phase = "end";
     this.endReason = reason;
     this.activeId = null;
+    if (wasPlaying) this.fx("end", { reason });
   }
 
   backToLobby(player) {
@@ -734,6 +753,7 @@ class Room {
     this.record(target, "rerolled");
     this.drawWord(target);
     this.announce(`Host losuje nowe hasło dla gracza ${target.nick}`);
+    this.fx("reroll", { playerId: target.id });
     this.emit("wordChanged", target, "rerolled", "");
     this.changed();
   }
