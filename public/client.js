@@ -1244,6 +1244,66 @@ $("btn-layout").onclick = () => {
 };
 
 $("btn-next").onclick = () => act("next");
+
+const nextKey = {
+  storageKey: "czolko-next-key",
+  code: storage.get("czolko-next-key") || "Space",
+  capturing: false,
+
+  label(code) {
+    if (code === "Space") return "Spacja";
+    if (code.startsWith("Key")) return code.slice(3);
+    if (code.startsWith("Digit")) return code.slice(5);
+    if (code.startsWith("Numpad")) return "Num " + code.slice(6);
+    const names = { Enter: "Enter", ArrowRight: "→", ArrowLeft: "←", ArrowUp: "↑", ArrowDown: "↓", Tab: "Tab", ShiftLeft: "Shift", ShiftRight: "Shift", ControlLeft: "Ctrl", ControlRight: "Ctrl", AltLeft: "Alt", AltRight: "Alt Gr", Backquote: "`" };
+    return names[code] || code;
+  },
+
+  render() {
+    for (const button of document.querySelectorAll(".btn-next-key")) {
+      button.textContent = this.capturing ? "Naciśnij klawisz… (Esc = anuluj)" : "⌨️ " + this.label(this.code);
+      button.classList.toggle("selected", this.capturing);
+    }
+  },
+
+  startCapture() {
+    this.capturing = true;
+    this.render();
+  },
+
+  onKey(event) {
+    if (this.capturing) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.capturing = false;
+      if (event.code !== "Escape") {
+        this.code = event.code;
+        storage.set(this.storageKey, this.code);
+        toast("Next jest teraz pod klawiszem: " + this.label(this.code));
+      }
+      this.render();
+      return;
+    }
+    if (event.code !== this.code || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+    if ($("screen-game").classList.contains("hidden")) return;
+    if (event.target.closest("input, textarea, select, [contenteditable]")) return;
+    if (document.querySelector(".modal:not(.hidden)")) return;
+    const button = $("btn-next");
+    if ($("action-bar").classList.contains("hidden") || button.disabled) return;
+    event.preventDefault();
+    button.click();
+    motion.restart(button, "key-press");
+  }
+};
+
+for (const button of document.querySelectorAll(".btn-next-key")) {
+  button.onclick = (event) => {
+    event.currentTarget.blur();
+    nextKey.startCapture();
+  };
+}
+document.addEventListener("keydown", (event) => nextKey.onKey(event), true);
+nextKey.render();
 $("btn-guess").onclick = () => act("guess");
 $("btn-pass").onclick = () => ask("Spasować? Stracisz 1 punkt.", () => act("pass"));
 $("btn-vote-yes").onclick = () => act("vote", { approve: true });

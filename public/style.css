@@ -2111,3 +2111,29 @@ input.invalid {
   0% { transform: translate(-50%, -30px) rotate(-30deg) scale(0.3); opacity: 0; }
   100% { transform: translateX(-50%) rotate(-8deg); opacity: 1; }
 }
+
+.key-hint {
+  margin: 0 0 6px;
+  text-align: center;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.key-hint .btn-next-key {
+  padding: 1px 8px;
+  font-size: 0.8rem;
+}
+
+.key-row {
+  align-items: center;
+  margin-top: 8px;
+}
+
+.key-press {
+  animation: key-press 0.25s ease-out;
+}
+
+@keyframes key-press {
+  0% { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
