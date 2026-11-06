@@ -1,6 +1,9 @@
 const crypto = require("crypto");
 const { EventEmitter } = require("events");
-const { isListedWord } = require("./words");
+const { isListedWord, randomWords } = require("./words");
+
+const REFILL_SIZE = 10;
+const GAME_AUTHOR = "Losowanie gry";
 
 const CUSTOM_WORD_CHANCE = 0.8;
 
@@ -275,13 +278,12 @@ class Room {
   record(player, outcome) {
     const word = player.word;
     if (!word) return;
-    const author = this.getPlayer(word.authorId);
     this.history.push({
       text: word.text,
       holderId: player.id,
       holderNick: player.nick,
       authorId: word.authorId,
-      authorNick: author ? author.nick : "?",
+      authorNick: this.authorName(word),
       outcome,
       ms: Date.now() - (word.drawnAt || Date.now()),
       revealed: Boolean(word.authorRevealed),
@@ -322,7 +324,7 @@ class Room {
     if (detective) awards.push({ icon: "🕵️", title: "Detektyw", text: `${detective.nick}: ${detective.stats.reveals}× odkrył(a) autora` });
     const authors = new Map();
     for (const h of this.history) {
-      if (h.outcome === "rerolled" || h.outcome === "unfinished") continue;
+      if (h.outcome === "rerolled" || h.outcome === "unfinished" || !h.authorId) continue;
       const entry = authors.get(h.authorId) || { nick: h.authorNick, passes: 0, ms: 0, count: 0 };
       if (h.outcome === "passed") entry.passes += 1;
       entry.ms += h.ms;
@@ -350,11 +352,11 @@ class Room {
     this.requireTurn(player);
     if (!player.word) fail("Nie masz teraz hasła");
     if (player.word.authorRevealed) fail("Autor jest już odkryty");
-    const author = this.getPlayer(player.word.authorId);
+    const authorNick = this.authorName(player.word);
     player.word.authorRevealed = true;
     player.score -= AUTHOR_REVEAL_COST;
     this.stat(player, "reveals");
-    this.announce(`🕵️ ${player.nick} odkrywa autora hasła (−0,5): ${author ? author.nick : "gracz, który wyszedł"}`);
+    this.announce(`🕵️ ${player.nick} odkrywa autora hasła (−0,5): ${authorNick}`);
     this.changed();
   }
 
@@ -389,10 +391,14 @@ class Room {
     this.clearHelp();
     this.pool = [];
     this.history = [];
+    this.usedTexts = new Set();
     for (const p of this.players) {
       p.helpsUsed = 0;
       p.stats = { guessed: 0, passes: 0, reveals: 0 };
-      for (const text of p.words) this.pool.push({ id: ++this.wordSeq, text, authorId: p.id, custom: !isListedWord(text) });
+      for (const text of p.words) {
+        this.pool.push({ id: ++this.wordSeq, text, authorId: p.id, custom: !isListedWord(text) });
+        this.usedTexts.add(text.toLocaleLowerCase("pl"));
+      }
       p.score = 0;
       p.word = null;
     }
@@ -432,7 +438,29 @@ class Room {
     }, TURN_TIME_MS);
   }
 
+  authorName(word) {
+    if (!word.authorId) return GAME_AUTHOR;
+    const author = this.getPlayer(word.authorId);
+    return author ? author.nick : "gracz, który wyszedł";
+  }
+
+  refillPool() {
+    if (!this.usedTexts) this.usedTexts = new Set();
+    const fresh = randomWords(REFILL_SIZE, [...this.usedTexts]);
+    for (const text of fresh) {
+      this.pool.push({ id: ++this.wordSeq, text, authorId: null, custom: false });
+      this.usedTexts.add(text.toLocaleLowerCase("pl"));
+    }
+    if (fresh.length) this.announce(`🎲 Pula się skończyła, dorzucam ${fresh.length} haseł z losowania`);
+    return fresh.length > 0;
+  }
+
+  hasWordFor(player) {
+    return this.pool.some((word) => word.authorId !== player.id);
+  }
+
   drawWord(player) {
+    if (!this.hasWordFor(player)) this.refillPool();
     const candidates = [];
     this.pool.forEach((word, index) => {
       if (word.authorId !== player.id) candidates.push(index);
@@ -701,7 +729,7 @@ class Room {
     this.requireAdmin(admin);
     this.requirePhase("game");
     const target = this.requireTarget(playerId);
-    if (!this.pool.some((word) => word.authorId !== target.id)) fail("W puli nie ma już haseł dla tego gracza");
+    if (!this.hasWordFor(target) && !this.refillPool()) fail("Nie ma już żadnych haseł do wylosowania");
     if (this.vote && this.vote.guesserId === target.id) this.cancelVote("Głosowanie anulowane, nowe hasło");
     this.record(target, "rerolled");
     this.drawWord(target);
@@ -786,7 +814,7 @@ class Room {
         helpsLeft: Math.max(0, this.helpLimit - p.helpsUsed),
         word: p.id !== viewer.id && p.word ? p.word.text : null,
         authorId: p.word && p.word.authorRevealed ? p.word.authorId : null,
-        authorNick: p.word && p.word.authorRevealed ? (this.getPlayer(p.word.authorId) || { nick: "?" }).nick : null
+        authorNick: p.word && p.word.authorRevealed ? this.authorName(p.word) : null
       })),
       vote: this.voteView(viewer),
       results: this.phase === "end"
