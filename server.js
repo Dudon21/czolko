@@ -210,6 +210,16 @@ io.on("connection", (socket) => {
     room.setPointLimit(player, limit);
   });
 
+  handle(socket, "setTimeLimit", ({ minutes }) => {
+    const { room, player } = currentSession(socket);
+    room.setTimeLimit(player, minutes);
+  });
+
+  handle(socket, "revealAuthor", () => {
+    const { room, player } = currentSession(socket);
+    room.revealAuthor(player);
+  });
+
   handle(socket, "setHelpLimit", ({ limit }) => {
     const { room, player } = currentSession(socket);
     room.setHelpLimit(player, limit);

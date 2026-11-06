@@ -14,6 +14,8 @@ const DEFAULT_POINT_LIMIT = 5;
 const HELP_TIME_MS = 60000;
 const DEFAULT_HELP_LIMIT = 1;
 const MAX_HELP_LIMIT = 10;
+const AUTHOR_REVEAL_COST = 0.5;
+const MAX_TIME_LIMIT_MIN = 240;
 const MIN_POINT_LIMIT = 1;
 const MAX_POINT_LIMIT = 100;
 const MAX_AVATAR_LENGTH = 200000;
@@ -64,6 +66,10 @@ class Room {
     this.vote = null;
     this.help = null;
     this.helpLimit = DEFAULT_HELP_LIMIT;
+    this.timeLimitMin = 0;
+    this.history = [];
+    this.gameStartedAt = 0;
+    this.gameTimer = null;
     this.turnTimer = null;
     this.turnEndsAt = 0;
     this.endReason = null;
@@ -219,7 +225,135 @@ class Room {
     }
     this.pointLimit = limit;
     this.announce(`Limit punktów: ${limit}`);
-    if (this.phase === "game" && this.players.some((p) => p.score >= limit)) this.finish("limit");
+    if (this.phase === "game" && this.players.some((p) => this.reachedLimit(p))) this.finish("limit");
+    this.changed();
+  }
+
+  reachedLimit(player) {
+    return !this.timeLimitMin && player.score >= this.pointLimit;
+  }
+
+  setTimeLimit(player, value) {
+    this.requireManager(player);
+    this.requirePhase("lobby", "game");
+    const minutes = Math.floor(Number(value));
+    if (!Number.isFinite(minutes) || minutes < 0 || minutes > MAX_TIME_LIMIT_MIN) {
+      fail(`Czas gry musi być od 0 do ${MAX_TIME_LIMIT_MIN} minut`);
+    }
+    this.timeLimitMin = minutes;
+    this.announce(minutes ? `Gramy na czas: ${minutes} min. Wygrywa najwięcej punktów` : `Gramy do ${this.pointLimit} pkt`);
+    if (this.phase === "game") {
+      this.scheduleGameEnd();
+      if (this.players.some((p) => this.reachedLimit(p))) this.finish("limit");
+    }
+    this.changed();
+  }
+
+  gameEndsAt() {
+    return this.timeLimitMin && this.gameStartedAt ? this.gameStartedAt + this.timeLimitMin * 60000 : 0;
+  }
+
+  stopGameTimer() {
+    clearTimeout(this.gameTimer);
+    this.gameTimer = null;
+  }
+
+  scheduleGameEnd() {
+    this.stopGameTimer();
+    const endsAt = this.gameEndsAt();
+    if (this.phase !== "game" || !endsAt) return;
+    const remaining = endsAt - Date.now();
+    if (remaining <= 0) return this.finish("time");
+    this.gameTimer = setTimeout(() => {
+      if (this.phase !== "game") return;
+      this.finish("time");
+      this.announce("⏰ Koniec czasu gry!");
+      this.changed();
+    }, remaining);
+  }
+
+  record(player, outcome) {
+    const word = player.word;
+    if (!word) return;
+    const author = this.getPlayer(word.authorId);
+    this.history.push({
+      text: word.text,
+      holderId: player.id,
+      holderNick: player.nick,
+      authorId: word.authorId,
+      authorNick: author ? author.nick : "?",
+      outcome,
+      ms: Date.now() - (word.drawnAt || Date.now()),
+      revealed: Boolean(word.authorRevealed),
+      helps: word.helps || 0
+    });
+  }
+
+  stat(player, key) {
+    if (!player.stats) player.stats = { guessed: 0, passes: 0, reveals: 0 };
+    player.stats[key] += 1;
+  }
+
+  summary() {
+    const awards = [];
+    const seconds = (ms) => Math.max(1, Math.round(ms / 1000));
+    const time = (ms) => {
+      const total = seconds(ms);
+      return total >= 60 ? `${Math.floor(total / 60)} min ${total % 60} s` : `${total} s`;
+    };
+    const guessed = this.history.filter((h) => h.outcome === "guessed");
+    if (guessed.length) {
+      const fastest = guessed.reduce((a, b) => (b.ms < a.ms ? b : a));
+      awards.push({ icon: "⚡", title: "Błyskawica", text: `${fastest.holderNick} zgadł(a) „${fastest.text}” w ${time(fastest.ms)}` });
+      const slowest = guessed.reduce((a, b) => (b.ms > a.ms ? b : a));
+      if (slowest !== fastest) {
+        awards.push({ icon: "🐢", title: "Najtrudniejsze hasło", text: `„${slowest.text}” męczył(a) ${slowest.holderNick} przez ${time(slowest.ms)}` });
+      }
+    }
+    const top = (key, minimum) => {
+      const best = this.players.filter((p) => p.stats && p.stats[key] >= minimum).sort((a, b) => b.stats[key] - a.stats[key])[0];
+      return best || null;
+    };
+    const passer = top("passes", 1);
+    if (passer) awards.push({ icon: "🙈", title: "Król Passów", text: `${passer.nick}: ${passer.stats.passes}× pass` });
+    const helper = this.players.filter((p) => p.helpsUsed > 0).sort((a, b) => b.helpsUsed - a.helpsUsed)[0];
+    if (helper) awards.push({ icon: "🆘", title: "Telefon do przyjaciela", text: `${helper.nick}: ${helper.helpsUsed}× pomoc` });
+    const detective = top("reveals", 1);
+    if (detective) awards.push({ icon: "🕵️", title: "Detektyw", text: `${detective.nick}: ${detective.stats.reveals}× odkrył(a) autora` });
+    const authors = new Map();
+    for (const h of this.history) {
+      if (h.outcome === "rerolled") continue;
+      const entry = authors.get(h.authorId) || { nick: h.authorNick, passes: 0, ms: 0, count: 0 };
+      if (h.outcome === "passed") entry.passes += 1;
+      entry.ms += h.ms;
+      entry.count += 1;
+      authors.set(h.authorId, entry);
+    }
+    const evil = [...authors.values()].sort((a, b) => b.passes - a.passes || b.ms / b.count - a.ms / a.count)[0];
+    if (evil && authors.size > 1) {
+      awards.push({ icon: "😈", title: "Złośliwy autor", text: `Hasła od ${evil.nick} szły najgorzej (${evil.passes}× pass, średnio ${time(evil.ms / evil.count)})` });
+    }
+    const history = this.history.map((h) => ({
+      text: h.text,
+      holderNick: h.holderNick,
+      authorNick: h.authorNick,
+      outcome: h.outcome,
+      seconds: seconds(h.ms),
+      helps: h.helps,
+      revealed: h.revealed
+    }));
+    return { awards, history, totalGuessed: guessed.length };
+  }
+
+  revealAuthor(player) {
+    this.requireTurn(player);
+    if (!player.word) fail("Nie masz teraz hasła");
+    if (player.word.authorRevealed) fail("Autor jest już odkryty");
+    const author = this.getPlayer(player.word.authorId);
+    player.word.authorRevealed = true;
+    player.score -= AUTHOR_REVEAL_COST;
+    this.stat(player, "reveals");
+    this.announce(`🕵️ ${player.nick} odkrywa autora hasła (−0,5): ${author ? author.nick : "gracz, który wyszedł"}`);
     this.changed();
   }
 
@@ -253,8 +387,10 @@ class Room {
     this.clearVote();
     this.clearHelp();
     this.pool = [];
+    this.history = [];
     for (const p of this.players) {
       p.helpsUsed = 0;
+      p.stats = { guessed: 0, passes: 0, reveals: 0 };
       for (const text of p.words) this.pool.push({ id: ++this.wordSeq, text, authorId: p.id, custom: !isListedWord(text) });
       p.score = 0;
       p.word = null;
@@ -262,6 +398,8 @@ class Room {
     shuffle(this.pool);
     this.phase = "game";
     this.endReason = null;
+    this.gameStartedAt = Date.now();
+    this.scheduleGameEnd();
     const starters = this.players.filter((p) => p.connected);
     const starter = (starters.length ? starters : this.players)[crypto.randomInt(starters.length || this.players.length)];
     this.activeId = starter.id;
@@ -308,6 +446,9 @@ class Room {
     if (custom.length && listed.length) group = crypto.randomInt(1000) < CUSTOM_WORD_CHANCE * 1000 ? custom : listed;
     const index = group[crypto.randomInt(group.length)];
     player.word = this.pool.splice(index, 1)[0];
+    player.word.drawnAt = Date.now();
+    player.word.authorRevealed = false;
+    player.word.helps = 0;
     return true;
   }
 
@@ -349,6 +490,8 @@ class Room {
     this.requireTurn(player);
     this.clearHelp();
     const word = player.word;
+    this.record(player, "passed");
+    this.stat(player, "passes");
     player.score -= 1;
     player.word = null;
     this.announce(`${player.nick} pasuje (−1). Hasło: ${word ? word.text : "?"}`);
@@ -387,6 +530,7 @@ class Room {
     if (helper === player) fail("Wybierz innego gracza");
     if (!helper.connected) fail("Ten gracz jest offline");
     player.helpsUsed += 1;
+    if (player.word) player.word.helps = (player.word.helps || 0) + 1;
     this.stopTurnTimer();
     const help = { askerId: player.id, helperId: helper.id, endsAt: Date.now() + HELP_TIME_MS, timer: null };
     help.timer = setTimeout(() => {
@@ -473,16 +617,19 @@ class Room {
     this.clearVote();
     if (!guesser) return;
     const word = guesser.word;
+    this.record(guesser, "guessed");
+    this.stat(guesser, "guessed");
     guesser.score += 1;
     guesser.word = null;
     this.announce(`${guesser.nick} zgaduje! (+1) Hasło: ${word ? word.text : "?"}`);
     this.emit("wordChanged", guesser, "guessed", word ? word.text : "");
-    if (guesser.score >= this.pointLimit) return this.finish("limit");
+    if (this.reachedLimit(guesser)) return this.finish("limit");
     if (!this.drawWord(guesser)) return this.finish("pool");
     this.advanceTurn();
   }
 
   finish(reason) {
+    this.stopGameTimer();
     this.clearVote();
     this.clearHelp();
     this.stopTurnTimer();
@@ -537,7 +684,7 @@ class Room {
     const target = this.requireTarget(playerId);
     target.score += amount;
     this.announce(`Admin: ${target.nick} ${amount > 0 ? "+" : ""}${amount} pkt`);
-    if (target.score >= this.pointLimit) this.finish("limit");
+    if (this.reachedLimit(target)) this.finish("limit");
     this.changed();
   }
 
@@ -554,6 +701,7 @@ class Room {
     const target = this.requireTarget(playerId);
     if (!this.pool.some((word) => word.authorId !== target.id)) fail("W puli nie ma już haseł dla tego gracza");
     if (this.vote && this.vote.guesserId === target.id) this.cancelVote("Głosowanie anulowane, nowe hasło");
+    this.record(target, "rerolled");
     this.drawWord(target);
     this.announce(`Host losuje nowe hasło dla gracza ${target.nick}`);
     this.emit("wordChanged", target, "rerolled", "");
@@ -606,6 +754,8 @@ class Room {
       phase: this.phase,
       pointLimit: this.pointLimit,
       helpLimit: this.helpLimit,
+      timeLimitMin: this.timeLimitMin,
+      gameRemainingMs: this.phase === "game" && this.gameEndsAt() ? Math.max(0, this.gameEndsAt() - Date.now()) : null,
       help: this.help
         ? { askerId: this.help.askerId, helperId: this.help.helperId, remainingMs: Math.max(0, this.help.endsAt - Date.now()) }
         : null,
@@ -632,14 +782,17 @@ class Room {
         canManage: this.canManage(p),
         hasPhone: p.phoneCount > 0,
         helpsLeft: Math.max(0, this.helpLimit - p.helpsUsed),
-        word: p.id !== viewer.id && p.word ? p.word.text : null
+        word: p.id !== viewer.id && p.word ? p.word.text : null,
+        authorId: p.word && p.word.authorRevealed ? p.word.authorId : null,
+        authorNick: p.word && p.word.authorRevealed ? (this.getPlayer(p.word.authorId) || { nick: "?" }).nick : null
       })),
       vote: this.voteView(viewer),
       results: this.phase === "end"
         ? [...this.players]
             .sort((a, b) => b.score - a.score)
             .map((p) => ({ id: p.id, nick: p.nick, color: p.color, score: p.score, word: p.word ? p.word.text : null }))
-        : null
+        : null,
+      summary: this.phase === "end" ? this.summary() : null
     };
   }
 }
@@ -733,6 +886,7 @@ class Registry extends EventEmitter {
     room.clearVote();
     room.clearHelp();
     room.stopTurnTimer();
+    room.stopGameTimer();
     this.rooms.delete(room.code);
   }
 }

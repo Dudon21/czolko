@@ -94,6 +94,13 @@
             </label>
             <button id="btn-set-help-limit" class="btn btn-small">Ustaw</button>
           </div>
+          <div class="row">
+            <label class="field field-inline">
+              <span>Gra na czas (min, 0 = do punktów)</span>
+              <input id="time-limit-input" type="number" min="0" max="240">
+            </label>
+            <button id="btn-set-time-limit" class="btn btn-small">Ustaw</button>
+          </div>
           <p id="start-hint" class="status"></p>
         </div>
       </div>
@@ -159,6 +166,7 @@
           <span class="my-score"></span>
           <span class="my-word" data-word="???">???</span>
         </div>
+        <div class="my-author hidden"></div>
       </div>
       <button id="btn-camera-game" class="btn btn-small btn-camera hidden" title="Kamerka">📷</button>
       <button id="btn-layout" class="btn btn-small" title="Przełącz: mój kafelek w siatce / w rogu">🔲</button>
@@ -182,6 +190,7 @@
 
     <div class="game-layout">
       <main class="game-main">
+        <div id="game-clock" class="game-clock hidden">⏰ <span class="game-timer"></span></div>
         <div id="turn-banner" class="turn-banner"></div>
         <div id="help-bar" class="help-bar hidden">
           <span id="help-text"></span>
@@ -197,6 +206,7 @@
             <button id="btn-guess" class="btn btn-big btn-green">Zgadłem!</button>
             <button id="btn-pass" class="btn btn-big btn-red">Pass</button>
             <button id="btn-help" class="btn btn-big btn-help">🆘 Pomoc</button>
+            <button id="btn-author" class="btn btn-big btn-author">🕵️ Autor (−0,5)</button>
           </div>
         </div>
 
@@ -225,7 +235,19 @@
     <div class="card end-card">
       <h1 class="logo">Koniec gry!</h1>
       <p id="end-reason" class="end-reason"></p>
-      <ol id="ranking" class="ranking"></ol>
+      <div id="podium" class="podium"></div>
+      <div id="losers-box" class="losers-box hidden">
+        <h2>Przegrywy 🫠</h2>
+        <div id="losers" class="losers"></div>
+      </div>
+      <div id="awards-box" class="awards-box hidden">
+        <h2>Nagrody</h2>
+        <div id="awards" class="awards"></div>
+      </div>
+      <details id="history-box" class="history-box hidden">
+        <summary>Historia haseł</summary>
+        <ol id="history" class="history"></ol>
+      </details>
       <button id="btn-to-lobby" class="btn btn-primary btn-wide">Wróć do lobby</button>
       <button class="btn btn-small btn-red btn-wide btn-leave-game">Wyjdź z pokoju</button>
     </div>
@@ -264,6 +286,13 @@
         <input id="admin-help-limit" type="number" min="0" max="10">
       </label>
       <button class="btn btn-small" data-admin="helpLimit">Zmień</button>
+    </div>
+    <div class="row">
+      <label class="field field-inline">
+        <span>Czas gry (min)</span>
+        <input id="admin-time-limit" type="number" min="0" max="240">
+      </label>
+      <button class="btn btn-small" data-admin="timeLimit">Zmień</button>
       <button class="btn btn-small btn-red" data-admin="endHelp">Przerwij pomoc</button>
     </div>
     <div id="admin-players" class="admin-players"></div>

@@ -48,6 +48,7 @@ const store = {
   avatars: new Map(),
   voteDeadline: 0,
   helpDeadline: 0,
+  gameDeadline: 0,
   turnDeadline: 0,
   roomDeadline: 0,
   selfInGrid: storage.get(`czolko-layout${PROFILE}`) !== "corner",
@@ -99,6 +100,10 @@ function ask(text, onYes) {
     onYes();
   };
   $("modal-no").onclick = () => show($("modal"), false);
+}
+
+function fmtScore(value) {
+  return String(Math.round(value * 10) / 10).replace(".", ",").replace("-", "−");
 }
 
 function findPlayer(id) {
@@ -777,6 +782,10 @@ function renderLobby(s) {
   if (document.activeElement !== helpInput) helpInput.value = s.helpLimit;
   helpInput.disabled = !s.me.canManage;
   show($("btn-set-help-limit"), s.me.canManage);
+  const timeInput = $("time-limit-input");
+  if (document.activeElement !== timeInput) timeInput.value = s.timeLimitMin;
+  timeInput.disabled = !s.me.canManage;
+  show($("btn-set-time-limit"), s.me.canManage);
 
   const missing = s.players.filter((p) => !p.wordsReady).map((p) => p.nick);
   const host = s.players.find((p) => p.canManage);
@@ -792,6 +801,7 @@ function renderLobby(s) {
 }
 
 $("btn-set-limit").onclick = () => act("setLimit", { limit: Number($("limit-input").value) });
+$("btn-set-time-limit").onclick = () => act("setTimeLimit", { minutes: Number($("time-limit-input").value) });
 $("btn-set-help-limit").onclick = () => act("setHelpLimit", { limit: Number($("help-limit-input").value) });
 $("btn-start").onclick = () => act("startGame");
 function leaveRoom() {
@@ -822,9 +832,10 @@ function createTile() {
   const score = el("div", "score-badge");
   const nick = el("div", "nick-bar");
   const word = el("div", "word-label");
-  frame.append(slot, nick, score, word);
+  const author = el("div", "author-tag hidden");
+  frame.append(slot, nick, score, author, word);
   root.append(top, frame);
-  return { root, frame, crown, badge, slot, score, nick, word };
+  return { root, frame, crown, badge, slot, score, nick, word, author };
 }
 
 function helpRole(s, id) {
@@ -844,7 +855,14 @@ function updateTile(tile, p, s, leaders) {
   show(tile.crown, leaders.has(p.id));
   show(tile.badge, s.activeId === p.id || role === "helper");
   tile.badge.textContent = role === "helper" ? "Pomaga" : "Czółko";
-  tile.score.textContent = p.score;
+  tile.score.textContent = fmtScore(p.score);
+  show(tile.author, Boolean(p.authorNick));
+  if (p.authorNick && tile.author.dataset.nick !== p.authorNick) {
+    tile.author.dataset.nick = p.authorNick;
+    tile.author.textContent = "✍️ od " + p.authorNick;
+    motion.restart(tile.author, "author-in");
+  }
+  if (!p.authorNick) tile.author.dataset.nick = "";
   tile.nick.textContent = p.connected ? p.nick : `${p.nick} (offline)`;
   tile.root.classList.toggle("me", p.id === s.me.id);
   const previousWord = tile.word.dataset.word;
@@ -908,7 +926,7 @@ const motion = {
       const anchor = inCorner ? $("my-tile") : tile && tile.frame;
       const badge = inCorner ? $("my-tile").querySelector(".my-score") : tile && tile.score;
       if (!anchor) continue;
-      this.floatText(anchor, delta > 0 ? `+${delta}` : `${delta}`, delta > 0 ? "plus" : "minus");
+      this.floatText(anchor, delta > 0 ? "+" + fmtScore(delta) : fmtScore(delta), delta > 0 ? "plus" : "minus");
       if (badge) this.restart(badge, delta > 0 ? "score-pop" : "score-drop");
       if (delta > 0) this.confetti(anchor);
     }
@@ -1043,7 +1061,10 @@ function renderMyTile(s, leaders) {
   $("btn-layout").classList.toggle("selected", !store.selfInGrid);
   bindSlot(root.querySelector(".media-slot"), me);
   root.querySelector(".my-nick").textContent = (leaders.has(me.id) ? "👑 " : "") + me.nick;
-  root.querySelector(".my-score").textContent = `${me.score} pkt`;
+  root.querySelector(".my-score").textContent = fmtScore(me.score) + " pkt";
+  const myAuthor = root.querySelector(".my-author");
+  show(myAuthor, Boolean(me.authorNick));
+  myAuthor.textContent = me.authorNick ? "✍️ hasło od " + me.authorNick : "";
   show(root.querySelector(".my-turn-badge"), s.activeId === me.id);
 }
 
@@ -1064,6 +1085,8 @@ function renderTurn(s) {
   show($("btn-help"), s.helpLimit > 0);
   $("btn-help").textContent = "🆘 Pomoc (" + helpsLeft + ")";
   $("btn-help").disabled = Boolean(s.vote) || Boolean(s.help) || helpsLeft <= 0;
+  $("btn-author").disabled = Boolean(s.vote) || Boolean(me && me.authorNick);
+  $("btn-author").textContent = me && me.authorNick ? "🕵️ od " + me.authorNick : "🕵️ Autor (−0,5)";
   if (!myTurn || s.help || s.vote) show($("help-picker"), false);
   $("action-status").replaceChildren();
   if (myTurn && s.vote) {
@@ -1072,11 +1095,26 @@ function renderTurn(s) {
   } else if (myTurn && s.help) {
     $("action-status").append("Trwa pomoc. Możesz już zgadywać, to zakończy rozmowę");
   } else if (myTurn) {
-    $("action-status").append(`Gramy do ${s.pointLimit} pkt · `);
+    $("action-status").append(s.timeLimitMin ? "Gra na czas · " : `Gramy do ${s.pointLimit} pkt · `);
     $("action-status").appendChild(el("span", "turn-timer"));
   }
   updateTurnTimers();
 }
+
+function renderGameClock(s) {
+  const timed = s.gameRemainingMs !== null && s.gameRemainingMs !== undefined;
+  show($("game-clock"), timed);
+  store.gameDeadline = timed ? performance.now() + s.gameRemainingMs : 0;
+  updateGameClock();
+}
+
+function updateGameClock() {
+  const seconds = store.gameDeadline ? secondsLeft(store.gameDeadline) : 0;
+  for (const node of document.querySelectorAll(".game-timer")) node.textContent = formatDuration(seconds);
+  $("game-clock").classList.toggle("low", Boolean(store.gameDeadline) && seconds <= 60);
+}
+
+$("btn-author").onclick = () => ask("Odkryć, kto wpisał twoje hasło? Kosztuje 0,5 punktu.", () => act("revealAuthor"));
 
 function renderHelp(s) {
   const help = s.help;
@@ -1181,6 +1219,7 @@ for (const button of document.querySelectorAll(".btn-extend")) button.onclick = 
 setInterval(() => {
   if (store.voteDeadline) updateVoteTimers();
   if (store.helpDeadline) updateHelpTimers();
+  if (store.gameDeadline) updateGameClock();
   updateTurnTimers();
   updateRoomTimers();
 }, 250);
@@ -1192,6 +1231,7 @@ function renderGame(s) {
   renderGrid(s, leaders);
   renderTurn(s);
   renderHelp(s);
+  renderGameClock(s);
   renderVote(s);
   motion.scoreChanges(s);
 }
@@ -1212,25 +1252,80 @@ $("btn-vote-no").onclick = () => act("vote", { approve: false });
 function renderEnd(s) {
   const reasons = {
     limit: "Ktoś dobił do limitu punktów!",
+    time: "⏰ Koniec czasu! Wygrywa ten, kto ma najwięcej.",
     pool: "Skończyły się hasła do wylosowania.",
     players: "Zostało za mało graczy.",
     admin: "Admin zakończył grę."
   };
   $("end-reason").textContent = reasons[s.endReason] || "";
-  const list = $("ranking");
-  list.replaceChildren();
-  const medals = ["🥇", "🥈", "🥉"];
-  s.results.forEach((r, index) => {
-    const item = el("li", "rank-item");
-    item.style.setProperty("--pc", r.color);
-    const slot = el("div", "media-slot");
-    bindSlot(slot, r);
-    const info = el("div", "rank-info");
-    info.appendChild(el("div", "rank-nick", `${medals[index] || `${index + 1}.`} ${r.nick}`));
-    if (r.word) info.appendChild(el("div", "rank-word", `ostatnie hasło: ${r.word}`));
-    item.append(slot, info, el("div", "rank-score", `${r.score} pkt`));
-    list.appendChild(item);
+  const results = s.results || [];
+  const key = results.map((r) => r.id + ":" + r.score).join("|");
+  const podium = $("podium");
+  if (podium.dataset.key !== key) {
+    podium.dataset.key = key;
+    podium.replaceChildren();
+    const places = [1, 0, 2];
+    const medals = ["🥇", "🥈", "🥉"];
+    for (const index of places) {
+      const r = results[index];
+      if (!r) continue;
+      const spot = el("div", "podium-spot podium-" + (index + 1));
+      spot.style.setProperty("--pc", r.color);
+      spot.style.setProperty("--delay", (index === 0 ? 0.9 : index === 1 ? 0.45 : 0) + "s");
+      const cam = el("div", "podium-cam");
+      const slot = el("div", "media-slot");
+      slot.dataset.video = "1";
+      bindSlot(slot, r);
+      cam.appendChild(slot);
+      if (index === 0) cam.appendChild(el("span", "podium-crown", "👑"));
+      const name = el("div", "podium-nick", r.nick);
+      const step = el("div", "podium-step");
+      step.append(el("div", "podium-medal", medals[index]), el("div", "podium-score", fmtScore(r.score) + " pkt"));
+      spot.append(cam, name, step);
+      podium.appendChild(spot);
+    }
+    const losers = $("losers");
+    losers.replaceChildren();
+    results.slice(3).forEach((r, i) => {
+      const item = el("div", "loser");
+      item.style.setProperty("--pc", r.color);
+      const slot = el("div", "media-slot");
+      slot.dataset.video = "1";
+      bindSlot(slot, r);
+      item.append(slot, el("div", "loser-nick", (i + 4) + ". " + r.nick), el("div", "loser-score", fmtScore(r.score) + " pkt"));
+      losers.appendChild(item);
+    });
+    show($("losers-box"), results.length > 3);
+    if (results[0] && !motion.reduced) setTimeout(() => motion.confetti(podium.querySelector(".podium-1") || podium), 1300);
+  } else {
+    for (const slot of podium.querySelectorAll(".media-slot")) media.update(slot, findResult(s, slot.dataset.playerId));
+    for (const slot of $("losers").querySelectorAll(".media-slot")) media.update(slot, findResult(s, slot.dataset.playerId));
+  }
+
+  const summary = s.summary || { awards: [], history: [] };
+  const awards = $("awards");
+  awards.replaceChildren();
+  summary.awards.forEach((a, i) => {
+    const card = el("div", "award");
+    card.style.setProperty("--delay", (1.6 + i * 0.15) + "s");
+    card.append(el("div", "award-icon", a.icon), el("div", "award-title", a.title), el("div", "award-text", a.text));
+    awards.appendChild(card);
   });
+  show($("awards-box"), summary.awards.length > 0);
+  const history = $("history");
+  history.replaceChildren();
+  const outcomes = { guessed: "✅", passed: "🙈", rerolled: "🔄" };
+  for (const h of summary.history) {
+    const extras = [];
+    if (h.helps) extras.push("🆘" + (h.helps > 1 ? "×" + h.helps : ""));
+    if (h.revealed) extras.push("🕵️");
+    history.appendChild(el("li", "history-item", outcomes[h.outcome] + " " + h.holderNick + ": „" + h.text + "” (od " + h.authorNick + ", " + h.seconds + " s) " + extras.join(" ")));
+  }
+  show($("history-box"), summary.history.length > 0);
+}
+
+function findResult(s, id) {
+  return findPlayer(id) || (s.results || []).find((r) => r.id === id) || { id, nick: "?", color: "#888888" };
 }
 
 $("btn-to-lobby").onclick = () => act("backToLobby");
@@ -1250,6 +1345,8 @@ function renderAdminPanel(s) {
 
   const limitInput = $("admin-limit");
   if (document.activeElement !== limitInput) limitInput.value = s.pointLimit;
+  const timeLimitInput = $("admin-time-limit");
+  if (document.activeElement !== timeLimitInput) timeLimitInput.value = s.timeLimitMin;
   const helpLimitInput = $("admin-help-limit");
   if (document.activeElement !== helpLimitInput) helpLimitInput.value = s.helpLimit;
   for (const button of document.querySelectorAll("[data-admin=endHelp]")) button.disabled = !s.help;
@@ -1261,7 +1358,7 @@ function renderAdminPanel(s) {
   for (const p of s.players) {
     const row = el("div", "admin-player");
     row.style.setProperty("--pc", p.color);
-    row.appendChild(el("span", "admin-nick", `${p.nick} · ${p.score} pkt`));
+    row.appendChild(el("span", "admin-nick", p.nick + " · " + fmtScore(p.score) + " pkt"));
     const buttons = [
       ["−1", "score", -1],
       ["+1", "score", 1]
@@ -1306,6 +1403,7 @@ $("admin-panel").addEventListener("click", (event) => {
   if (action === "approve") act("admin:resolveVote", { approve: true });
   if (action === "reject") act("admin:resolveVote", { approve: false });
   if (action === "limit") act("setLimit", { limit: Number($("admin-limit").value) });
+  if (action === "timeLimit") act("setTimeLimit", { minutes: Number($("admin-time-limit").value) });
   if (action === "helpLimit") act("setHelpLimit", { limit: Number($("admin-help-limit").value) });
   if (action === "endHelp") act("help:end");
   if (action === "score") act("admin:score", { playerId: id, delta: Number(delta) });
