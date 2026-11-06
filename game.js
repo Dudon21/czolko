@@ -11,6 +11,9 @@ const MAX_PLAYERS = 12;
 const VOTE_TIME_MS = 30000;
 const TURN_TIME_MS = 45000;
 const DEFAULT_POINT_LIMIT = 5;
+const HELP_TIME_MS = 60000;
+const DEFAULT_HELP_LIMIT = 1;
+const MAX_HELP_LIMIT = 10;
 const MIN_POINT_LIMIT = 1;
 const MAX_POINT_LIMIT = 100;
 const MAX_AVATAR_LENGTH = 200000;
@@ -59,6 +62,8 @@ class Room {
     this.pool = [];
     this.activeId = null;
     this.vote = null;
+    this.help = null;
+    this.helpLimit = DEFAULT_HELP_LIMIT;
     this.turnTimer = null;
     this.turnEndsAt = 0;
     this.endReason = null;
@@ -128,6 +133,7 @@ class Room {
       connected: false,
       socketId: null,
       score: 0,
+      helpsUsed: 0,
       word: null
     };
     this.players.push(player);
@@ -139,6 +145,9 @@ class Room {
     if (!this.players.includes(player)) return;
     if (this.phase === "game") {
       if (this.vote && this.vote.guesserId === player.id) this.cancelVote(`Głosowanie anulowane, ${player.nick} opuszcza grę`);
+      if (this.help && (this.help.askerId === player.id || this.help.helperId === player.id)) {
+        this.endHelpNow(`Pomoc przerwana, ${player.nick} opuszcza grę`);
+      }
       if (this.activeId === player.id) this.advanceTurn();
       if (player.word) this.pool.push(player.word);
       player.word = null;
@@ -214,6 +223,15 @@ class Room {
     this.changed();
   }
 
+  setHelpLimit(player, value) {
+    this.requireManager(player);
+    const limit = Math.floor(Number(value));
+    if (!Number.isFinite(limit) || limit < 0 || limit > MAX_HELP_LIMIT) fail(`Liczba pomocy musi być od 0 do ${MAX_HELP_LIMIT}`);
+    this.helpLimit = limit;
+    this.announce(`Pomoce na gracza: ${limit}`);
+    this.changed();
+  }
+
   claimHost(player) {
     if (this.hostId === player.id) fail("Już jesteś hostem");
     this.hostId = player.id;
@@ -233,8 +251,10 @@ class Room {
 
   beginGame() {
     this.clearVote();
+    this.clearHelp();
     this.pool = [];
     for (const p of this.players) {
+      p.helpsUsed = 0;
       for (const text of p.words) this.pool.push({ id: ++this.wordSeq, text, authorId: p.id, custom: !isListedWord(text) });
       p.score = 0;
       p.word = null;
@@ -261,11 +281,11 @@ class Room {
 
   restartTurnTimer() {
     this.stopTurnTimer();
-    if (this.phase !== "game" || this.vote || !this.activeId) return;
+    if (this.phase !== "game" || this.vote || this.help || !this.activeId) return;
     const activeId = this.activeId;
     this.turnEndsAt = Date.now() + TURN_TIME_MS;
     this.turnTimer = setTimeout(() => {
-      if (this.phase !== "game" || this.vote || this.activeId !== activeId) return;
+      if (this.phase !== "game" || this.vote || this.help || this.activeId !== activeId) return;
       const player = this.getPlayer(activeId);
       this.announce(`Czas minął! ${player ? player.nick : "Gracz"} traci turę`);
       this.advanceTurn();
@@ -292,6 +312,7 @@ class Room {
   }
 
   advanceTurn() {
+    this.clearHelp();
     const count = this.players.length;
     if (!count) {
       this.activeId = null;
@@ -319,12 +340,14 @@ class Room {
 
   next(player) {
     this.requireTurn(player);
+    this.clearHelp();
     this.advanceTurn();
     this.changed();
   }
 
   pass(player) {
     this.requireTurn(player);
+    this.clearHelp();
     const word = player.word;
     player.score -= 1;
     player.word = null;
@@ -337,6 +360,7 @@ class Room {
 
   guess(player) {
     this.requireTurn(player);
+    this.clearHelp();
     const vote = {
       guesserId: player.id,
       yes: new Set(),
@@ -353,6 +377,47 @@ class Room {
     this.stopTurnTimer();
     this.announce(`${player.nick} mówi, że zgadł(a)! Głosujcie`);
     this.changed();
+  }
+
+  requestHelp(player, helperId) {
+    this.requireTurn(player);
+    if (this.help) fail("Pomoc już trwa");
+    if (player.helpsUsed >= this.helpLimit) fail(this.helpLimit ? "Wykorzystałeś już wszystkie pomoce" : "Pomoce są wyłączone");
+    const helper = this.requireTarget(helperId);
+    if (helper === player) fail("Wybierz innego gracza");
+    if (!helper.connected) fail("Ten gracz jest offline");
+    player.helpsUsed += 1;
+    this.stopTurnTimer();
+    const help = { askerId: player.id, helperId: helper.id, endsAt: Date.now() + HELP_TIME_MS, timer: null };
+    help.timer = setTimeout(() => {
+      if (this.help !== help) return;
+      this.endHelpNow("Koniec czasu na pomoc");
+      this.changed();
+    }, HELP_TIME_MS);
+    this.help = help;
+    this.announce(`🆘 ${player.nick} prosi o pomoc: ${helper.nick}. 60 sekund rozmowy!`);
+    this.changed();
+  }
+
+  endHelp(player) {
+    this.requirePhase("game");
+    if (!this.help) fail("Nie ma teraz pomocy");
+    const involved = player.id === this.help.askerId || player.id === this.help.helperId;
+    if (!involved && !this.canManage(player)) fail("Tylko uczestnicy rozmowy albo host mogą ją zakończyć");
+    this.endHelpNow(`${player.nick} kończy pomoc`);
+    this.changed();
+  }
+
+  endHelpNow(message) {
+    if (!this.help) return;
+    this.clearHelp();
+    this.restartTurnTimer();
+    this.announce(message);
+  }
+
+  clearHelp() {
+    if (this.help) clearTimeout(this.help.timer);
+    this.help = null;
   }
 
   voters() {
@@ -419,6 +484,7 @@ class Room {
 
   finish(reason) {
     this.clearVote();
+    this.clearHelp();
     this.stopTurnTimer();
     this.phase = "end";
     this.endReason = reason;
@@ -429,6 +495,7 @@ class Room {
     if (this.phase === "game") this.requireAdmin(player);
     this.requirePhase("game", "end");
     this.clearVote();
+    this.clearHelp();
     this.stopTurnTimer();
     this.phase = "lobby";
     this.pool = [];
@@ -538,6 +605,10 @@ class Room {
       code: this.code,
       phase: this.phase,
       pointLimit: this.pointLimit,
+      helpLimit: this.helpLimit,
+      help: this.help
+        ? { askerId: this.help.askerId, helperId: this.help.helperId, remainingMs: Math.max(0, this.help.endsAt - Date.now()) }
+        : null,
       activeId: this.activeId,
       turnRemainingMs: this.turnEndsAt ? Math.max(0, this.turnEndsAt - Date.now()) : null,
       endReason: this.endReason,
@@ -560,6 +631,7 @@ class Room {
         wordsReady: p.wordsReady,
         canManage: this.canManage(p),
         hasPhone: p.phoneCount > 0,
+        helpsLeft: Math.max(0, this.helpLimit - p.helpsUsed),
         word: p.id !== viewer.id && p.word ? p.word.text : null
       })),
       vote: this.voteView(viewer),
@@ -659,6 +731,7 @@ class Registry extends EventEmitter {
     clearTimeout(room.expiryTimer);
     clearTimeout(room.warningTimer);
     room.clearVote();
+    room.clearHelp();
     room.stopTurnTimer();
     this.rooms.delete(room.code);
   }

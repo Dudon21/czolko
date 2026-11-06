@@ -210,6 +210,21 @@ io.on("connection", (socket) => {
     room.setPointLimit(player, limit);
   });
 
+  handle(socket, "setHelpLimit", ({ limit }) => {
+    const { room, player } = currentSession(socket);
+    room.setHelpLimit(player, limit);
+  });
+
+  handle(socket, "help:request", ({ playerId }) => {
+    const { room, player } = currentSession(socket);
+    room.requestHelp(player, playerId);
+  });
+
+  handle(socket, "help:end", () => {
+    const { room, player } = currentSession(socket);
+    room.endHelp(player);
+  });
+
   handle(socket, "claimAdmin", ({ password }) => {
     const { room, player } = currentSession(socket);
     if (!ADMIN_PASSWORD) fail("Hasło admina nie jest ustawione na serwerze");

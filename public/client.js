@@ -47,6 +47,7 @@ const store = {
   state: null,
   avatars: new Map(),
   voteDeadline: 0,
+  helpDeadline: 0,
   turnDeadline: 0,
   roomDeadline: 0,
   selfInGrid: storage.get(`czolko-layout${PROFILE}`) !== "corner",
@@ -772,6 +773,10 @@ function renderLobby(s) {
   if (document.activeElement !== limitInput) limitInput.value = s.pointLimit;
   limitInput.disabled = !s.me.canManage;
   show($("btn-set-limit"), s.me.canManage);
+  const helpInput = $("help-limit-input");
+  if (document.activeElement !== helpInput) helpInput.value = s.helpLimit;
+  helpInput.disabled = !s.me.canManage;
+  show($("btn-set-help-limit"), s.me.canManage);
 
   const missing = s.players.filter((p) => !p.wordsReady).map((p) => p.nick);
   const host = s.players.find((p) => p.canManage);
@@ -787,6 +792,7 @@ function renderLobby(s) {
 }
 
 $("btn-set-limit").onclick = () => act("setLimit", { limit: Number($("limit-input").value) });
+$("btn-set-help-limit").onclick = () => act("setHelpLimit", { limit: Number($("help-limit-input").value) });
 $("btn-start").onclick = () => act("startGame");
 function leaveRoom() {
   const inGame = store.state && store.state.phase === "game";
@@ -821,12 +827,23 @@ function createTile() {
   return { root, frame, crown, badge, slot, score, nick, word };
 }
 
+function helpRole(s, id) {
+  if (!s.help) return null;
+  if (s.help.askerId === id) return "asker";
+  if (s.help.helperId === id) return "helper";
+  return null;
+}
+
 function updateTile(tile, p, s, leaders) {
+  const role = helpRole(s, p.id);
   tile.root.style.setProperty("--pc", p.color);
   tile.root.classList.toggle("active", s.activeId === p.id);
   tile.root.classList.toggle("offline", !p.connected);
+  tile.root.classList.toggle("help-main", Boolean(role));
+  tile.root.classList.toggle("helper", role === "helper");
   show(tile.crown, leaders.has(p.id));
-  show(tile.badge, s.activeId === p.id);
+  show(tile.badge, s.activeId === p.id || role === "helper");
+  tile.badge.textContent = role === "helper" ? "Pomaga" : "Czółko";
   tile.score.textContent = p.score;
   tile.nick.textContent = p.connected ? p.nick : `${p.nick} (offline)`;
   tile.root.classList.toggle("me", p.id === s.me.id);
@@ -845,6 +862,7 @@ const motion = {
   reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   lastScores: new Map(),
   lastActiveId: null,
+  lastHelpKey: "",
 
   restart(node, className) {
     node.classList.remove(className);
@@ -961,20 +979,39 @@ const motion = {
     step();
   },
 
+  helpFlash(text) {
+    if (this.reduced) return;
+    const node = el("div", "help-flash", text);
+    document.body.appendChild(node);
+    setTimeout(() => node.remove(), 1600);
+  },
+
   reset() {
     this.lastScores = new Map();
     this.lastActiveId = null;
+    this.lastHelpKey = "";
   }
 };
 
 function renderGrid(s, leaders) {
   const grid = $("players-grid");
-  const others = s.players.filter((p) => store.selfInGrid || p.id !== s.me.id);
-  const spotlight = others.some((p) => p.id === s.activeId);
+  const meInHelp = Boolean(helpRole(s, s.me.id));
+  const others = s.players.filter((p) => store.selfInGrid || meInHelp || p.id !== s.me.id);
+  const helpMode = Boolean(s.help);
+  if (helpMode) {
+    const rank = (p) => (p.id === s.help.askerId ? 0 : p.id === s.help.helperId ? 1 : 2);
+    others.sort((a, b) => rank(a) - rank(b));
+  }
+  const spotlight = !helpMode && others.some((p) => p.id === s.activeId);
   grid.classList.toggle("spotlight", spotlight);
+  grid.classList.toggle("help-mode", helpMode);
+  const helpKey = s.help ? s.help.askerId + ":" + s.help.helperId : "";
   const turnChanged = motion.lastActiveId !== null && motion.lastActiveId !== s.activeId;
+  const helpChanged = helpKey !== motion.lastHelpKey;
+  if (helpChanged && helpKey) motion.helpFlash("🆘 Pomoc!");
   motion.lastActiveId = s.activeId;
-  const rects = turnChanged ? motion.capture() : null;
+  motion.lastHelpKey = helpKey;
+  const rects = turnChanged || helpChanged ? motion.capture() : null;
   grid.style.setProperty("--side-rows", Math.max(1, others.length - 1));
   const seen = new Set();
   others.forEach((p, index) => {
@@ -1002,7 +1039,7 @@ function renderMyTile(s, leaders) {
   const root = $("my-tile");
   root.style.setProperty("--pc", me.color);
   root.classList.toggle("active", s.activeId === me.id);
-  root.classList.toggle("compact", store.selfInGrid);
+  root.classList.toggle("compact", store.selfInGrid || Boolean(helpRole(s, me.id)));
   $("btn-layout").classList.toggle("selected", !store.selfInGrid);
   bindSlot(root.querySelector(".media-slot"), me);
   root.querySelector(".my-nick").textContent = (leaders.has(me.id) ? "👑 " : "") + me.nick;
@@ -1022,16 +1059,71 @@ function renderTurn(s) {
 
   show($("action-bar"), myTurn);
   for (const id of ["btn-next", "btn-guess", "btn-pass"]) $(id).disabled = Boolean(s.vote);
+  const me = findPlayer(s.me.id);
+  const helpsLeft = me ? me.helpsLeft : 0;
+  show($("btn-help"), s.helpLimit > 0);
+  $("btn-help").textContent = "🆘 Pomoc (" + helpsLeft + ")";
+  $("btn-help").disabled = Boolean(s.vote) || Boolean(s.help) || helpsLeft <= 0;
+  if (!myTurn || s.help || s.vote) show($("help-picker"), false);
   $("action-status").replaceChildren();
   if (myTurn && s.vote) {
     $("action-status").append(`Czekam na głosy: ✔ ${s.vote.yes}/${s.vote.required} · ✖ ${s.vote.no} · `);
     $("action-status").appendChild(el("span", "vote-timer"));
+  } else if (myTurn && s.help) {
+    $("action-status").append("Trwa pomoc. Możesz już zgadywać, to zakończy rozmowę");
   } else if (myTurn) {
     $("action-status").append(`Gramy do ${s.pointLimit} pkt · `);
     $("action-status").appendChild(el("span", "turn-timer"));
   }
   updateTurnTimers();
 }
+
+function renderHelp(s) {
+  const help = s.help;
+  show($("help-bar"), Boolean(help));
+  store.helpDeadline = help ? performance.now() + help.remainingMs : 0;
+  updateHelpTimers();
+  if (!help) return;
+  const asker = findPlayer(help.askerId);
+  const helper = findPlayer(help.helperId);
+  const name = (p) => (p ? (p.id === s.me.id ? "Ty" : p.nick) : "?");
+  $("help-text").textContent = "🆘 Pomoc: " + name(asker) + " + " + name(helper);
+  show($("btn-help-end"), Boolean(helpRole(s, s.me.id)) || s.me.canManage);
+}
+
+function updateHelpTimers() {
+  const seconds = store.helpDeadline ? secondsLeft(store.helpDeadline) : 0;
+  for (const node of document.querySelectorAll(".help-timer")) {
+    node.textContent = "⏱ " + seconds + " s";
+    node.classList.toggle("low", seconds <= 10);
+  }
+}
+
+function openHelpPicker() {
+  const s = store.state;
+  if (!s) return;
+  const list = $("help-choices");
+  list.replaceChildren();
+  for (const p of s.players) {
+    if (p.id === s.me.id) continue;
+    const button = el("button", "btn help-choice");
+    button.style.setProperty("--pc", p.color);
+    const slot = el("div", "media-slot");
+    bindSlot(slot, p);
+    button.append(slot, el("span", "", p.connected ? p.nick : p.nick + " (offline)"));
+    button.disabled = !p.connected;
+    button.onclick = () => {
+      show($("help-picker"), false);
+      act("help:request", { playerId: p.id });
+    };
+    list.appendChild(button);
+  }
+  show($("help-picker"), true);
+}
+
+$("btn-help").onclick = openHelpPicker;
+$("help-cancel").onclick = () => show($("help-picker"), false);
+$("btn-help-end").onclick = () => act("help:end");
 
 function renderVote(s) {
   const vote = s.vote;
@@ -1088,6 +1180,7 @@ for (const button of document.querySelectorAll(".btn-extend")) button.onclick = 
 
 setInterval(() => {
   if (store.voteDeadline) updateVoteTimers();
+  if (store.helpDeadline) updateHelpTimers();
   updateTurnTimers();
   updateRoomTimers();
 }, 250);
@@ -1098,6 +1191,7 @@ function renderGame(s) {
   renderMyTile(s, leaders);
   renderGrid(s, leaders);
   renderTurn(s);
+  renderHelp(s);
   renderVote(s);
   motion.scoreChanges(s);
 }
@@ -1156,6 +1250,9 @@ function renderAdminPanel(s) {
 
   const limitInput = $("admin-limit");
   if (document.activeElement !== limitInput) limitInput.value = s.pointLimit;
+  const helpLimitInput = $("admin-help-limit");
+  if (document.activeElement !== helpLimitInput) helpLimitInput.value = s.helpLimit;
+  for (const button of document.querySelectorAll("[data-admin=endHelp]")) button.disabled = !s.help;
   for (const button of document.querySelectorAll("[data-admin=approve], [data-admin=reject]")) button.disabled = !s.vote;
   for (const button of document.querySelectorAll("[data-admin=forceNext]")) button.disabled = s.phase !== "game";
 
@@ -1209,6 +1306,8 @@ $("admin-panel").addEventListener("click", (event) => {
   if (action === "approve") act("admin:resolveVote", { approve: true });
   if (action === "reject") act("admin:resolveVote", { approve: false });
   if (action === "limit") act("setLimit", { limit: Number($("admin-limit").value) });
+  if (action === "helpLimit") act("setHelpLimit", { limit: Number($("admin-help-limit").value) });
+  if (action === "endHelp") act("help:end");
   if (action === "score") act("admin:score", { playerId: id, delta: Number(delta) });
   if (action === "restart") ask("Zrestartować grę? Punkty się wyzerują, hasła zostaną wylosowane od nowa.", () => act("admin:restart"));
   if (action === "reroll" && target) {

@@ -87,6 +87,13 @@
             </label>
             <button id="btn-set-limit" class="btn btn-small">Ustaw</button>
           </div>
+          <div class="row">
+            <label class="field field-inline">
+              <span>Pomoce na gracza</span>
+              <input id="help-limit-input" type="number" min="0" max="10">
+            </label>
+            <button id="btn-set-help-limit" class="btn btn-small">Ustaw</button>
+          </div>
           <p id="start-hint" class="status"></p>
         </div>
       </div>
@@ -176,6 +183,11 @@
     <div class="game-layout">
       <main class="game-main">
         <div id="turn-banner" class="turn-banner"></div>
+        <div id="help-bar" class="help-bar hidden">
+          <span id="help-text"></span>
+          <span class="help-timer"></span>
+          <button id="btn-help-end" class="btn btn-small btn-red">Zakończ pomoc</button>
+        </div>
         <div id="players-grid" class="players-grid"></div>
 
         <div id="action-bar" class="bottom-panel action-bar hidden">
@@ -184,6 +196,7 @@
             <button id="btn-next" class="btn btn-big">Next</button>
             <button id="btn-guess" class="btn btn-big btn-green">Zgadłem!</button>
             <button id="btn-pass" class="btn btn-big btn-red">Pass</button>
+            <button id="btn-help" class="btn btn-big btn-help">🆘 Pomoc</button>
           </div>
         </div>
 
@@ -245,6 +258,14 @@
       </label>
       <button class="btn btn-small" data-admin="limit">Zmień</button>
     </div>
+    <div class="row">
+      <label class="field field-inline">
+        <span>Pomoce</span>
+        <input id="admin-help-limit" type="number" min="0" max="10">
+      </label>
+      <button class="btn btn-small" data-admin="helpLimit">Zmień</button>
+      <button class="btn btn-small btn-red" data-admin="endHelp">Przerwij pomoc</button>
+    </div>
     <div id="admin-players" class="admin-players"></div>
     </div>
   </div>
@@ -256,6 +277,14 @@
         <button id="modal-yes" class="btn btn-primary">Tak</button>
         <button id="modal-no" class="btn">Nie</button>
       </div>
+    </div>
+  </div>
+
+  <div id="help-picker" class="modal hidden">
+    <div class="card modal-box">
+      <p>Kogo prosisz o pomoc? Macie 60 sekund rozmowy.</p>
+      <div id="help-choices" class="help-choices"></div>
+      <button id="help-cancel" class="btn">Anuluj</button>
     </div>
   </div>
 
