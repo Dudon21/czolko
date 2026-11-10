@@ -24,11 +24,17 @@ const SETTINGS = [
   { key: "liarSurvive", mode: "klamca", group: "Punkty", label: "Kłamca nie wykryty", min: 0, max: 10, step: 1, value: 3 },
   { key: "liarSaved", mode: "klamca", group: "Punkty", label: "Kłamca złapany, ale zgadł hasło", min: 0, max: 10, step: 1, value: 2 },
   { key: "liarCaughtCrew", mode: "klamca", group: "Punkty", label: "Dla każdego z ekipy, gdy kłamca przegra", min: 0, max: 10, step: 1, value: 1 },
-  { key: "liarVoteBonus", mode: "klamca", group: "Punkty", label: "Za głos na kłamcę", min: 0, max: 10, step: 1, value: 1 },
-  { key: "liarLaps", mode: "klamca", group: "Przebieg", label: "Kółka skojarzeń", min: 1, max: 4, step: 1, value: 2 },
+  { key: "liarVoteBonus", mode: "klamca", group: "Punkty", label: "Dodatkowo za głos na kłamcę", min: 0, max: 10, step: 1, value: 0 },
+  { key: "liarLaps", mode: "klamca", group: "Przebieg", label: "Maks. kółek (potem kłamca wygrywa)", min: 1, max: 10, step: 1, value: 5 },
   { key: "liarClueSeconds", mode: "klamca", group: "Czas (sekundy)", label: "Na jedno słowo", min: 10, max: 120, step: 5, value: 30 },
-  { key: "liarDiscussSeconds", mode: "klamca", group: "Czas (sekundy)", label: "Dyskusja", min: 10, max: 600, step: 10, value: 60 },
-  { key: "liarVoteSeconds", mode: "klamca", group: "Czas (sekundy)", label: "Głosowanie", min: 10, max: 180, step: 5, value: 45 }
+  { key: "liarVoteSeconds", mode: "klamca", group: "Czas (sekundy)", label: "Dyskusja i głosowanie po kółku", min: 30, max: 900, step: 10, value: 300 },
+  { key: "liarGuessSeconds", mode: "klamca", group: "Czas (sekundy)", label: "Kłamca zgaduje hasło", min: 10, max: 180, step: 5, value: 60 },
+  { key: "fiveLives", mode: "piec", group: "Przebieg", label: "Życia na start", min: 1, max: 10, step: 1, value: 3 },
+  { key: "fiveStartCards", mode: "piec", group: "Przebieg", label: "Karty na start", min: 0, max: 3, step: 1, value: 1 },
+  { key: "fiveCardChance", mode: "piec", group: "Przebieg", label: "Szansa na kartę po zaliczeniu (%)", min: 0, max: 100, step: 5, value: 30 },
+  { key: "fiveAnswerSeconds", mode: "piec", group: "Czas (sekundy)", label: "Czas na odpowiedź", min: 3, max: 30, step: 1, value: 5 },
+  { key: "fiveVoteSeconds", mode: "piec", group: "Czas (sekundy)", label: "Głosowanie: zaliczamy?", min: 5, max: 60, step: 5, value: 20 },
+  { key: "liarJudgeSeconds", mode: "klamca", group: "Czas (sekundy)", label: "Ocena strzału kłamcy", min: 10, max: 120, step: 5, value: 30 }
 ];
 
 const SETTINGS_BY_KEY = new Map(SETTINGS.map((setting) => [setting.key, setting]));

@@ -86,6 +86,7 @@
               <button class="btn mode-btn" data-mode="czolko">🙈 Czółko</button>
               <button class="btn mode-btn" data-mode="wskazowka">🔮 Wskazówka</button>
               <button class="btn mode-btn" data-mode="klamca">🕵️ Kłamca</button>
+              <button class="btn mode-btn" data-mode="piec">⏱️ 5 sekund</button>
             </div>
             <p id="mode-desc" class="status mode-desc"></p>
             <div class="liar-only liar-settings">
@@ -117,7 +118,7 @@
               </label>
             </div>
           </div>
-          <div class="row">
+          <div class="row hide-five">
             <label class="field field-inline">
               <span>Limit punktów</span>
               <input id="limit-input" type="number" min="1" max="100">
@@ -191,6 +192,16 @@
         </div>
       </div>
 
+      <div id="five-tasks-card" class="card five-only">
+        <h2>Wasze zadania do „5 sekund”</h2>
+        <p class="status">Opcjonalnie. Jedno zadanie w linii, np. „Wymień trzy rzeczy, które robi Darek po 3 piwach”. Mieszają się z zadaniami z WK.</p>
+        <textarea id="five-tasks-input" class="five-tasks-input" rows="6" maxlength="4500" placeholder="Wymień trzy…"></textarea>
+        <div class="row">
+          <button id="btn-save-five-tasks" class="btn btn-primary">Zapisz zadania</button>
+          <span id="five-tasks-status" class="status"></span>
+        </div>
+      </div>
+
       <div id="liar-words-card" class="card liar-only hidden">
         <h2>Twoje hasła do Kłamcy</h2>
         <p class="status">Wpisz 5 haseł i do każdego podpowiedź dla kłamcy. Twoje hasło nigdy nie trafi do ciebie jako kłamcy.</p>
@@ -254,6 +265,45 @@
           <span class="help-timer"></span>
           <button id="btn-help-end" class="btn btn-small btn-red">Zakończ pomoc</button>
         </div>
+        <div id="five-stage" class="liar-stage five-stage hidden">
+          <div id="five-card" class="liar-role five-card">
+            <div id="five-who" class="liar-role-label"></div>
+            <div id="five-task" class="five-task"></div>
+            <div id="five-curses" class="five-curses"></div>
+            <div id="five-count" class="five-count hidden"><span class="turn-timer"></span></div>
+          </div>
+          <div class="bottom-panel liar-panel five-panel">
+            <div id="five-pick" class="liar-box hidden">
+              <p id="five-pick-status" class="liar-big"></p>
+              <div id="five-pick-buttons" class="liar-vote-buttons"></div>
+            </div>
+            <div id="five-ready" class="liar-box hidden">
+              <p class="panel-status">Przeczytaj zadanie na głos i od razu kliknij START</p>
+              <div class="row row-center">
+                <button id="five-reroll" class="btn">🎲 Inne zadanie</button>
+                <button id="five-start" class="btn btn-green btn-big">▶ START</button>
+              </div>
+            </div>
+            <div id="five-vote" class="liar-box hidden">
+              <p id="five-vote-title" class="liar-big"></p>
+              <p id="five-vote-status" class="panel-status"></p>
+              <div id="five-vote-buttons" class="row row-center">
+                <button id="five-yes" class="btn btn-green btn-big">✅ Zaliczam</button>
+                <button id="five-no" class="btn btn-red btn-big">❌ Nie</button>
+              </div>
+            </div>
+            <p id="five-wait" class="panel-status liar-wait hidden"></p>
+            <div id="five-target" class="five-target hidden">
+              <p id="five-target-title" class="panel-status"></p>
+              <div id="five-target-buttons" class="liar-vote-buttons"></div>
+              <button id="five-target-cancel" class="btn btn-small">Anuluj</button>
+            </div>
+            <div id="five-hand-box" class="five-hand-box hidden">
+              <div class="five-hand-title">🃏 Twoje karty (widzą je wszyscy)</div>
+              <div id="five-hand" class="five-hand"></div>
+            </div>
+          </div>
+        </div>
         <div id="liar-stage" class="liar-stage hidden">
           <div id="liar-role" class="liar-role"></div>
           <div id="liar-panel" class="bottom-panel liar-panel">
@@ -272,19 +322,29 @@
                 <button id="liar-clue-submit" class="btn btn-green btn-big">Powiedz</button>
               </div>
             </div>
-            <div id="liar-discuss" class="liar-box hidden">
-              <p class="liar-big">🗣️ Dyskusja! Kto kłamie?</p>
-              <button id="liar-skip" class="btn btn-primary">Do głosowania ▶</button>
-            </div>
             <div id="liar-vote" class="liar-box hidden">
+              <p id="liar-vote-title" class="liar-big"></p>
               <p id="liar-vote-status" class="panel-status"></p>
               <div id="liar-vote-buttons" class="liar-vote-buttons"></div>
+              <div class="row row-center">
+                <button id="liar-vote-skip" class="btn btn-big liar-skip-btn">⏭️ Pomiń (kolejne kółko)</button>
+                <button id="liar-skip" class="btn btn-small btn-red hidden">Zakończ głosowanie</button>
+              </div>
             </div>
             <div id="liar-guess" class="liar-box hidden">
               <p class="liar-big">😬 Złapali cię! Zgadnij hasło, żeby się uratować</p>
+              <p class="panel-status">Wpisz hasło albo powiedz je na kamerce i kliknij „Zgaduję”. Reszta zdecyduje, czy zaliczyć.</p>
               <div class="row row-center">
-                <input id="liar-guess-input" maxlength="40" autocomplete="off" placeholder="hasło to…">
+                <input id="liar-guess-input" maxlength="40" autocomplete="off" placeholder="hasło to… (albo powiedz na głos)">
                 <button id="liar-guess-submit" class="btn btn-green btn-big">Zgaduję</button>
+              </div>
+            </div>
+            <div id="liar-judge" class="liar-box hidden">
+              <p id="liar-judge-title" class="liar-big"></p>
+              <p id="liar-judge-status" class="panel-status"></p>
+              <div id="liar-judge-buttons" class="row row-center">
+                <button id="liar-judge-yes" class="btn btn-green btn-big">✅ Zaliczam</button>
+                <button id="liar-judge-no" class="btn btn-red btn-big">❌ Nie</button>
               </div>
             </div>
             <div id="liar-reveal" class="liar-box hidden">

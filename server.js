@@ -8,6 +8,7 @@ const { AccessToken, RoomServiceClient } = require("livekit-server-sdk");
 const { Registry, GameError, fail } = require("./game");
 const { randomWords } = require("./words");
 const { SETTINGS } = require("./settings");
+const { FIVE_CARDS } = require("./five");
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
@@ -30,7 +31,7 @@ app.use(express.static(path.join(__dirname, "public")));
 app.get("/vendor/livekit-client.js", (req, res) => {
   res.sendFile(path.join(__dirname, "node_modules", "livekit-client", "dist", "livekit-client.umd.js"));
 });
-app.get("/config.json", (req, res) => res.json({ video: VIDEO_ENABLED, settings: SETTINGS }));
+app.get("/config.json", (req, res) => res.json({ video: VIDEO_ENABLED, settings: SETTINGS, fiveCards: FIVE_CARDS }));
 app.get("/qr.svg", (req, res) => {
   const text = String(req.query.text || "");
   if (!text || text.length > 300) return res.status(400).end();
@@ -385,7 +386,42 @@ io.on("connection", (socket) => {
 
   handle(socket, "liar:skip", () => {
     const { room, player } = currentSession(socket);
-    room.liarSkipDiscussion(player);
+    room.liarEndVote(player);
+  });
+
+  handle(socket, "setFiveTasks", ({ tasks }) => {
+    const { room, player } = currentSession(socket);
+    room.setFiveTasks(player, tasks);
+  });
+
+  handle(socket, "five:choose", ({ playerId }) => {
+    const { room, player } = currentSession(socket);
+    room.fiveChoose(player, playerId);
+  });
+
+  handle(socket, "five:reroll", () => {
+    const { room, player } = currentSession(socket);
+    room.fiveReroll(player);
+  });
+
+  handle(socket, "five:start", () => {
+    const { room, player } = currentSession(socket);
+    room.fiveStart(player);
+  });
+
+  handle(socket, "five:vote", ({ approve }) => {
+    const { room, player } = currentSession(socket);
+    room.fiveVote(player, approve === true);
+  });
+
+  handle(socket, "five:card", ({ cardId, playerId }) => {
+    const { room, player } = currentSession(socket);
+    room.fivePlayCard(player, cardId, playerId);
+  });
+
+  handle(socket, "liar:judge", ({ approve }) => {
+    const { room, player } = currentSession(socket);
+    room.liarJudge(player, approve === true);
   });
 
   handle(socket, "liar:vote", ({ playerId }) => {

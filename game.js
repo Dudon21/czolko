@@ -4,15 +4,15 @@ const { isListedWord, randomWords } = require("./words");
 const { randomScale } = require("./scales");
 const { SETTINGS_BY_KEY, defaultSettings } = require("./settings");
 
-const MODES = ["czolko", "wskazowka", "klamca"];
-const MODE_DEFAULT_LIMIT = { czolko: 5, wskazowka: 20, klamca: 10 };
+const MODES = ["czolko", "wskazowka", "klamca", "piec"];
+const MODE_DEFAULT_LIMIT = { czolko: 5, wskazowka: 20, klamca: 10, piec: 5 };
+const MODE_NAMES = { czolko: "🙈 Czółko", wskazowka: "🔮 Wskazówka", klamca: "🕵️ Kłamca", piec: "⏱️ 5 sekund" };
 const LIAR_SOURCES = ["players", "host"];
 const LIAR_MASTER_MODES = ["fixed", "rotate"];
 const LIAR_WORDS_PER_PLAYER = 5;
 const LIAR_MAX_WORD = 40;
 const LIAR_MAX_HINT = 40;
 const LIAR_MAX_CLUE = 30;
-const LIAR_GUESS_MS = 30000;
 const LIAR_REVEAL_MS = 20000;
 const LIAR_HINT_CHANCES = [0, 25, 50, 75, 100];
 const LIAR_MIN_PLAYERS = 3;
@@ -159,6 +159,13 @@ class Room {
     this.wordSeq = 0;
     this.chat = [];
     this.chatSeq = 0;
+    this.five = null;
+    this.fivePool = [];
+    this.fiveForced = [];
+    this.fiveHistory = [];
+    this.fiveRound = 0;
+    this.fiveOutSeq = 0;
+    this.fiveCardSeq = 0;
     this.mode = "czolko";
     this.wave = null;
     this.waveRound = 0;
@@ -247,6 +254,11 @@ class Room {
       wordsReady: false,
       liarWords: [],
       liarReady: false,
+      fiveTasks: [],
+      lives: 0,
+      cards: [],
+      fiveCurses: [],
+      fiveOut: 0,
       connected: false,
       socketId: null,
       score: 0,
@@ -266,6 +278,7 @@ class Room {
       if (this.help && (this.help.askerId === player.id || this.help.helperId === player.id)) {
         this.endHelpNow(`Pomoc przerwana, ${player.nick} opuszcza grę`);
       }
+      if (this.mode === "piec") this.fiveForced = this.fiveForced.filter((id) => id !== player.id);
       if (this.mode === "wskazowka") this.waveRemovePlayer(player);
       else if (this.mode === "czolko" && this.activeId === player.id) this.advanceTurn();
       if (player.word) this.pool.push(player.word);
@@ -285,6 +298,7 @@ class Room {
     if (this.phase === "game") {
       if (this.players.length < 2) this.finish("players");
       else if (this.mode === "klamca") this.liarAfterRemoval(player);
+      else if (this.mode === "piec") this.fiveAfterRemoval(player);
       else {
         this.evaluateVote();
         this.evaluateWave();
@@ -299,6 +313,7 @@ class Room {
     if (!connected) player.socketId = null;
     this.evaluateVote();
     this.evaluateWave();
+    this.evaluateFiveVote();
     this.evaluateLiarVote();
     this.hub.updatePresence(this);
     this.changed();
@@ -357,6 +372,7 @@ class Room {
   }
 
   reachedLimit(player) {
+    if (this.mode === "piec") return false;
     return !this.timeLimitMin && player.score >= this.pointLimit;
   }
 
@@ -423,6 +439,7 @@ class Room {
   summary() {
     if (this.mode === "wskazowka") return this.waveSummary();
     if (this.mode === "klamca") return this.liarSummary();
+    if (this.mode === "piec") return this.fiveSummary();
     const awards = [];
     const seconds = (ms) => Math.max(1, Math.round(ms / 1000));
     const time = (ms) => {
@@ -532,7 +549,7 @@ class Room {
     const previous = this.mode;
     this.mode = mode;
     if (this.pointLimit === MODE_DEFAULT_LIMIT[previous]) this.pointLimit = MODE_DEFAULT_LIMIT[mode];
-    this.announce(mode === "wskazowka" ? "Tryb gry: 🔮 Wskazówka" : "Tryb gry: 🙈 Czółko");
+    this.announce(`Tryb gry: ${MODE_NAMES[mode]}`);
     this.changed();
   }
 
@@ -544,7 +561,7 @@ class Room {
     this.requireManager(player);
     this.requirePhase("lobby");
     if (this.players.length < 2) fail("Potrzeba co najmniej 2 graczy");
-    if (this.mode === "wskazowka") {
+    if (this.mode === "wskazowka" || this.mode === "piec") {
       this.beginGame();
       this.changed();
       return;
@@ -572,8 +589,10 @@ class Room {
     this.clearHelp();
     this.clearWave();
     this.clearLiar();
+    this.clearFive();
     if (this.mode === "wskazowka") return this.beginWave();
     if (this.mode === "klamca") return this.beginLiar();
+    if (this.mode === "piec") return this.beginFive();
     this.pool = [];
     this.history = [];
     this.usedTexts = new Set();
@@ -870,6 +889,7 @@ class Room {
     this.clearHelp();
     this.clearWave();
     this.clearLiar();
+    this.clearFive();
     this.stopTurnTimer();
     if (this.phase === "game" && this.mode === "czolko") for (const p of this.players) this.record(p, "unfinished");
     const wasPlaying = this.phase === "game";
@@ -886,6 +906,7 @@ class Room {
     this.clearHelp();
     this.clearWave();
     this.clearLiar();
+    this.clearFive();
     this.stopTurnTimer();
     this.phase = "lobby";
     this.pool = [];
@@ -915,6 +936,11 @@ class Room {
       this.changed();
       return;
     }
+    if (this.mode === "piec") {
+      this.fiveForceNext();
+      this.changed();
+      return;
+    }
     this.cancelVote("Głosowanie przerwane przez admina");
     this.advanceTurn();
     this.announce("Admin przekazuje turę dalej");
@@ -937,6 +963,15 @@ class Room {
     const amount = Math.trunc(Number(delta));
     if (!amount || Math.abs(amount) > 10) fail("Nieprawidłowa zmiana punktów");
     const target = this.requireTarget(playerId);
+    if (this.mode === "piec") {
+      target.lives = Math.max(0, target.lives + amount);
+      target.fiveOut = target.lives > 0 ? 0 : target.fiveOut || ++this.fiveOutSeq;
+      this.fiveSyncScore(target);
+      this.announce(`Admin: ${target.nick} ${amount > 0 ? "+" : ""}${amount} ❤️`);
+      if (this.fiveAlive().length <= 1) this.finish("lastAlive");
+      this.changed();
+      return;
+    }
     target.score += amount;
     this.announce(`Admin: ${target.nick} ${amount > 0 ? "+" : ""}${amount} pkt`);
     if (this.reachedLimit(target)) this.finish("limit");
@@ -1578,8 +1613,13 @@ class Room {
       authorId: null,
       order: [],
       turn: 0,
+      lap: 1,
       clues: [],
       votes: new Map(),
+      meetings: [],
+      ejectedId: null,
+      wrongEject: false,
+      judges: new Map(),
       caught: false,
       guess: null,
       guessCorrect: false,
@@ -1636,19 +1676,19 @@ class Room {
 
   startClueTurn() {
     const liar = this.liar;
-    const total = liar.order.length * this.settings.liarLaps;
+    const total = liar.order.length * liar.lap;
     while (liar.turn < total) {
       const speaker = this.getPlayer(this.liarSpeakerId());
       if (speaker && speaker.connected) break;
-      if (speaker) liar.clues.push({ playerId: speaker.id, text: "—", lap: Math.floor(liar.turn / liar.order.length) + 1, skipped: true });
+      if (speaker) liar.clues.push({ playerId: speaker.id, text: "—", lap: liar.lap, skipped: true });
       liar.turn += 1;
     }
-    if (liar.turn >= total) return this.startLiarDiscussion();
+    if (liar.turn >= total) return this.startLiarVote();
     const speakerId = this.liarSpeakerId();
     this.activeId = speakerId;
     this.liarSchedule(this.settings.liarClueSeconds * 1000, () => {
       const speaker = this.getPlayer(speakerId);
-      liar.clues.push({ playerId: speakerId, text: "—", lap: Math.floor(liar.turn / liar.order.length) + 1, skipped: true });
+      liar.clues.push({ playerId: speakerId, text: "—", lap: liar.lap, skipped: true });
       if (speaker) this.announce(`${speaker.nick} nie zdążył(a) ze słowem`);
       liar.turn += 1;
       this.startClueTurn();
@@ -1665,37 +1705,30 @@ class Room {
     const text = cleanText(rawText, LIAR_MAX_CLUE);
     if (!text) fail("Wpisz słowo");
     if (guessMatches(text, liar.word) || normalizeGuess(text).includes(normalizeGuess(liar.word))) fail("Nie możesz podać samego hasła 😉");
-    liar.clues.push({ playerId: player.id, text, lap: Math.floor(liar.turn / liar.order.length) + 1, skipped: false });
+    liar.clues.push({ playerId: player.id, text, lap: liar.lap, skipped: false });
     liar.turn += 1;
     this.startClueTurn();
     this.changed();
   }
 
-  startLiarDiscussion() {
-    const liar = this.liar;
-    liar.stage = "discuss";
-    this.activeId = null;
-    this.fx("liarDiscuss");
-    this.announce("🗣️ Dyskusja! Kto kłamie?");
-    this.liarSchedule(this.settings.liarDiscussSeconds * 1000, () => this.startLiarVote());
-  }
-
-  liarSkipDiscussion(player) {
+  liarEndVote(player) {
     this.requirePhase("game");
     this.requireMode("klamca");
     const liar = this.liar;
-    if (!liar || liar.stage !== "discuss") fail("To teraz niedostępne");
-    if (!this.canManage(player) && liar.masterId !== player.id) fail("Tylko host może przejść do głosowania");
-    this.startLiarVote();
+    if (!liar || !["vote", "judge"].includes(liar.stage)) fail("To teraz niedostępne");
+    if (!this.canManage(player) && liar.masterId !== player.id) fail("Głosowanie może zakończyć host");
+    if (liar.stage === "vote") this.resolveLiarVote();
+    else this.resolveLiarJudge();
     this.changed();
   }
 
   startLiarVote() {
     const liar = this.liar;
     liar.stage = "vote";
+    liar.votes = new Map();
     this.activeId = null;
     this.fx("liarVote");
-    this.announce("🗳️ Głosowanie! Kliknij, kto twoim zdaniem kłamie");
+    this.announce(`🗳️ Koniec kółka ${liar.lap}! Gadajcie i głosujcie: kto kłamie? Albo pomińcie`);
     this.liarSchedule(this.settings.liarVoteSeconds * 1000, () => this.resolveLiarVote());
   }
 
@@ -1709,6 +1742,13 @@ class Room {
     const liar = this.liar;
     if (!liar || liar.stage !== "vote") fail("Teraz nie ma głosowania");
     if (player.id === liar.masterId) fail("Prowadzący nie głosuje");
+    if (!this.liarVoters().includes(player)) fail("Nie głosujesz w tej rundzie");
+    if (targetId === "skip") {
+      liar.votes.set(player.id, "skip");
+      this.evaluateLiarVote();
+      this.changed();
+      return;
+    }
     const target = this.requireTarget(targetId);
     if (target === player) fail("Nie możesz głosować na siebie");
     if (target.id === liar.masterId) fail("Prowadzący nie jest podejrzanym");
@@ -1724,10 +1764,11 @@ class Room {
     if (voters.length && voters.every((p) => liar.votes.has(p.id))) this.resolveLiarVote();
   }
 
-  tallyLiarVotes() {
+  tallyLiarVotes(votes = this.liar.votes) {
     const counts = new Map();
-    for (const [voterId, targetId] of this.liar.votes) {
-      if (!this.getPlayer(voterId) || !this.getPlayer(targetId)) continue;
+    for (const [voterId, targetId] of votes) {
+      if (!this.getPlayer(voterId)) continue;
+      if (targetId !== "skip" && !this.getPlayer(targetId)) continue;
       counts.set(targetId, (counts.get(targetId) || 0) + 1);
     }
     return counts;
@@ -1739,14 +1780,40 @@ class Room {
     const counts = this.tallyLiarVotes();
     const best = Math.max(0, ...counts.values());
     const leaders = [...counts.entries()].filter(([, count]) => count === best).map(([id]) => id);
-    liar.caught = best > 0 && leaders.length === 1 && leaders[0] === liar.impostorId;
+    const ejectedId = best > 0 && leaders.length === 1 && leaders[0] !== "skip" ? leaders[0] : null;
+    liar.meetings.push({ lap: liar.lap, votes: [...liar.votes.entries()], counts: [...counts.entries()], ejectedId });
+    if (!ejectedId) {
+      const skips = counts.get("skip") || 0;
+      const reason = best === 0 ? "nikt nie zagłosował" : leaders.length > 1 ? "remis" : `${skips}× pominięcie`;
+      if (liar.lap >= this.settings.liarLaps) {
+        this.announce(`⏭️ Nikt nie wylatuje (${reason}). To było ostatnie kółko!`);
+        return this.finishLiarRound();
+      }
+      liar.lap += 1;
+      liar.votes = new Map();
+      liar.stage = "clues";
+      this.fx("liarSkip");
+      this.announce(`⏭️ Nikt nie wylatuje (${reason}). Kółko ${liar.lap}/${this.settings.liarLaps}, kolejne słowa!`);
+      return this.startClueTurn();
+    }
+    liar.ejectedId = ejectedId;
+    const ejected = this.getPlayer(ejectedId);
+    if (ejectedId !== liar.impostorId) {
+      liar.wrongEject = true;
+      this.announce(`😱 Wyrzuciliście ${ejected ? ejected.nick : "?"}, a to nie był kłamca!`);
+      return this.finishLiarRound();
+    }
+    liar.caught = true;
     const impostor = this.getPlayer(liar.impostorId);
-    if (liar.caught && impostor && impostor.connected) {
+    if (impostor && impostor.connected) {
       liar.stage = "guess";
       this.activeId = impostor.id;
       this.fx("liarCaught", { playerId: impostor.id });
-      this.announce(`🎯 Złapany! ${impostor.nick} był(a) kłamcą. Ostatnia szansa: zgadnij hasło!`);
-      this.liarSchedule(LIAR_GUESS_MS, () => this.finishLiarRound());
+      this.announce(`🎯 Złapany! ${impostor.nick} był(a) kłamcą. Ma ${this.settings.liarGuessSeconds} s, żeby zgadnąć hasło!`);
+      this.liarSchedule(this.settings.liarGuessSeconds * 1000, () => {
+        this.announce(`⌛ ${impostor.nick} nie zdążył(a) zgadnąć`);
+        this.finishLiarRound();
+      });
       return;
     }
     this.finishLiarRound();
@@ -1759,11 +1826,48 @@ class Room {
     if (!liar || liar.stage !== "guess") fail("To teraz niedostępne");
     if (liar.impostorId !== player.id) fail("Zgaduje tylko kłamca");
     const text = cleanText(rawText, LIAR_MAX_WORD);
-    if (!text) fail("Wpisz hasło");
-    liar.guess = text;
-    liar.guessCorrect = guessMatches(text, liar.word);
-    this.finishLiarRound();
+    liar.guess = text || "🗣️ na głos";
+    liar.guessTyped = Boolean(text);
+    liar.stage = "judge";
+    liar.judges = new Map();
+    this.activeId = null;
+    this.fx("voteStart", { playerId: player.id });
+    this.announce(text ? `🤔 ${player.nick} strzela: „${text}”. Zaliczacie?` : `🤔 ${player.nick} zgadł(a) na głos. Zaliczacie?`);
+    this.liarSchedule(this.settings.liarJudgeSeconds * 1000, () => this.resolveLiarJudge());
     this.changed();
+  }
+
+  liarJudgeIds() {
+    const liar = this.liar;
+    const ids = this.liarParticipants().filter((p) => p.connected && p.id !== liar.impostorId).map((p) => p.id);
+    const master = liar.masterId && this.getPlayer(liar.masterId);
+    if (master && master.connected) ids.push(master.id);
+    return ids;
+  }
+
+  liarJudge(player, approve) {
+    this.requirePhase("game");
+    this.requireMode("klamca");
+    const liar = this.liar;
+    if (!liar || liar.stage !== "judge") fail("Teraz nie ma oceny");
+    if (!this.liarJudgeIds().includes(player.id)) fail("Nie oceniasz tego strzału");
+    liar.judges.set(player.id, Boolean(approve));
+    const judges = this.liarJudgeIds();
+    const yes = judges.filter((id) => liar.judges.get(id) === true).length;
+    const no = judges.filter((id) => liar.judges.get(id) === false).length;
+    const required = this.requiredYes(judges.length);
+    if (yes >= required || no > judges.length - required || judges.every((id) => liar.judges.has(id))) this.resolveLiarJudge();
+    this.changed();
+  }
+
+  resolveLiarJudge() {
+    const liar = this.liar;
+    if (!liar || liar.stage !== "judge") return;
+    const judges = this.liarJudgeIds();
+    const cast = judges.filter((id) => liar.judges.has(id));
+    const yes = cast.filter((id) => liar.judges.get(id)).length;
+    liar.guessCorrect = cast.length ? yes >= this.requiredYes(judges.length) : liar.guessTyped && guessMatches(liar.guess, liar.word);
+    this.finishLiarRound();
   }
 
   finishLiarRound() {
@@ -1774,10 +1878,12 @@ class Room {
     const participants = this.liarParticipants();
     if (!liar.escaped) {
       const cfg = this.settings;
-      if (!liar.caught) add(liar.impostorId, cfg.liarSurvive);
+      const crewCount = participants.filter((p) => p.id !== liar.impostorId).length;
+      if (liar.wrongEject) add(liar.impostorId, crewCount);
+      else if (!liar.caught) add(liar.impostorId, cfg.liarSurvive);
       else if (liar.guessCorrect) add(liar.impostorId, cfg.liarSaved);
       else for (const p of participants) if (p.id !== liar.impostorId) add(p.id, cfg.liarCaughtCrew);
-      for (const [voterId, targetId] of liar.votes) if (targetId === liar.impostorId && voterId !== liar.impostorId) add(voterId, cfg.liarVoteBonus);
+      if (cfg.liarVoteBonus) for (const [voterId, targetId] of liar.votes) if (targetId === liar.impostorId && voterId !== liar.impostorId) add(voterId, cfg.liarVoteBonus);
     }
     for (const [id, value] of points) {
       const player = this.getPlayer(id);
@@ -1794,7 +1900,9 @@ class Room {
     })).sort((a, b) => b.points - a.points);
     liar.stage = "reveal";
     this.activeId = null;
-    const counts = this.tallyLiarVotes();
+    const allVotes = liar.meetings.flatMap((meeting) => meeting.votes).filter(([, targetId]) => targetId !== "skip");
+    const counts = this.tallyLiarVotes(allVotes);
+    const ejected = liar.ejectedId ? this.getPlayer(liar.ejectedId) : null;
     this.liarHistory.push({
       round: liar.round,
       word: liar.word,
@@ -1804,15 +1912,19 @@ class Room {
       impostorNick: impostor ? impostor.nick : "?",
       caught: liar.caught,
       escaped: liar.escaped,
+      wrongEject: liar.wrongEject,
+      ejectedNick: ejected ? ejected.nick : null,
+      laps: liar.lap,
       guess: liar.guess,
       guessCorrect: liar.guessCorrect,
-      votes: [...liar.votes.entries()],
+      votes: allVotes,
       counts: [...counts.entries()],
       clues: liar.clues.map((clue) => ({ ...clue, nick: (this.getPlayer(clue.playerId) || { nick: "?" }).nick }))
     });
     this.fx("liarReveal", { caught: liar.caught, guessed: liar.guessCorrect, escaped: liar.escaped });
     let text;
     if (liar.escaped) text = "Kłamca uciekł z gry!";
+    else if (liar.wrongEject) text = `😈 ${impostor ? impostor.nick : "?"} był(a) kłamcą i zgarnia punkty! Hasło: ${liar.word}`;
     else if (!liar.caught) text = `😈 Kłamca ${impostor ? impostor.nick : "?"} wygrywa! Hasło: ${liar.word}`;
     else if (liar.guessCorrect) text = `😏 ${impostor ? impostor.nick : "?"} zgadł(a) hasło „${liar.word}” i ratuje się!`;
     else text = `🎉 Kłamca złapany! Hasło: ${liar.word}`;
@@ -1838,14 +1950,14 @@ class Room {
     clearTimeout(liar.timer);
     if (liar.stage === "setup") fail("Prowadzący musi najpierw wpisać hasło");
     if (liar.stage === "clues") {
-      liar.clues.push({ playerId: this.liarSpeakerId(), text: "—", lap: Math.floor(liar.turn / liar.order.length) + 1, skipped: true });
+      liar.clues.push({ playerId: this.liarSpeakerId(), text: "—", lap: liar.lap, skipped: true });
       liar.turn += 1;
       this.announce("Host pomija gracza");
       return this.startClueTurn();
     }
-    if (liar.stage === "discuss") return this.startLiarVote();
     if (liar.stage === "vote") return this.resolveLiarVote();
     if (liar.stage === "guess") return this.finishLiarRound();
+    if (liar.stage === "judge") return this.resolveLiarJudge();
     return this.liarContinue(null, true);
   }
 
@@ -1867,6 +1979,7 @@ class Room {
       return this.startClueTurn();
     }
     if (liar.stage === "vote") this.evaluateLiarVote();
+    if (liar.stage === "judge" && liar.judges.size && this.liarJudgeIds().every((id) => liar.judges.has(id))) this.resolveLiarJudge();
   }
 
   liarView(viewer) {
@@ -1885,16 +1998,25 @@ class Room {
       word: started && (!isImpostor || revealed) ? liar.word : null,
       hint: isMaster || revealed || (isImpostor && liar.hintGiven) ? liar.hint : null,
       hintGiven: isMaster || revealed || isImpostor ? liar.hintGiven : null,
-      impostorId: isMaster || revealed || isImpostor ? liar.impostorId : null,
+      impostorId: isMaster || revealed || isImpostor || liar.stage === "guess" || liar.stage === "judge" ? liar.impostorId : null,
       authorId: revealed ? liar.authorId : null,
       order: liar.order,
-      lap: liar.order.length ? Math.min(this.settings.liarLaps, Math.floor(liar.turn / liar.order.length) + 1) : 1,
+      lap: liar.lap,
       laps: this.settings.liarLaps,
       clues: liar.clues,
       voted: [...liar.votes.keys()],
       voters: this.liarVoters().length,
+      canVote: this.liarVoters().includes(viewer),
       myVote: liar.votes.get(viewer.id) || null,
       votes: revealed ? [...liar.votes.entries()] : null,
+      meetings: liar.meetings.map((meeting) => ({ lap: meeting.lap, counts: meeting.counts, ejectedId: meeting.ejectedId })),
+      ejectedId: liar.ejectedId,
+      wrongEject: revealed ? liar.wrongEject : null,
+      judgeGuess: liar.stage === "judge" ? liar.guess : null,
+      judged: liar.stage === "judge" ? [...liar.judges.keys()] : [],
+      judgeCount: liar.stage === "judge" ? this.liarJudgeIds().length : 0,
+      canJudge: liar.stage === "judge" && this.liarJudgeIds().includes(viewer.id),
+      myJudge: liar.judges.has(viewer.id) ? liar.judges.get(viewer.id) : null,
       caught: revealed || liar.stage === "guess" ? liar.caught : null,
       guess: revealed ? liar.guess : null,
       guessCorrect: revealed ? liar.guessCorrect : null,
@@ -1913,7 +2035,7 @@ class Room {
     const nickOf = (id) => (this.getPlayer(id) || { nick: "?" }).nick;
     for (const round of this.liarHistory) {
       if (round.escaped) continue;
-      if (!round.caught || round.guessCorrect) survived.set(round.impostorNick, (survived.get(round.impostorNick) || 0) + 1);
+      if (round.wrongEject || !round.caught || round.guessCorrect) survived.set(round.impostorNick, (survived.get(round.impostorNick) || 0) + 1);
       for (const [voterId, targetId] of round.votes) {
         if (targetId === round.impostorId) detectives.set(nickOf(voterId), (detectives.get(nickOf(voterId)) || 0) + 1);
       }
@@ -1940,6 +2062,9 @@ class Room {
         impostorNick: round.impostorNick,
         caught: round.caught,
         escaped: round.escaped,
+        wrongEject: round.wrongEject,
+        ejectedNick: round.ejectedNick,
+        laps: round.laps,
         guess: round.guess,
         guessCorrect: round.guessCorrect,
         clues: round.clues.filter((clue) => !clue.skipped).map((clue) => ({ nick: clue.nick, text: clue.text }))
@@ -2030,6 +2155,7 @@ class Room {
       settings: this.settings,
       wave: this.waveView(viewer),
       liar: this.liarView(viewer),
+      five: this.fiveView(viewer),
       liarSource: this.liarSource,
       liarMasterMode: this.liarMasterMode,
       liarMasterId: this.fixedMasterId(),
@@ -2042,12 +2168,16 @@ class Room {
         ? { askerId: this.help.askerId, helperId: this.help.helperId, remainingMs: Math.max(0, this.help.endsAt - Date.now()) }
         : null,
       activeId: this.activeId,
-      turnRemainingMs: this.mode === "wskazowka"
+      turnRemainingMs: this.mode === "piec"
+        ? (this.five && this.phase === "game" && this.five.endsAt ? Math.max(0, this.five.endsAt - Date.now()) : null)
+        : this.mode === "wskazowka"
         ? (this.wave && this.phase === "game" ? Math.max(0, this.wave.endsAt - Date.now()) : null)
         : this.mode === "klamca"
           ? (this.liar && this.phase === "game" && this.liar.endsAt ? Math.max(0, this.liar.endsAt - Date.now()) : null)
           : this.turnEndsAt ? Math.max(0, this.turnEndsAt - Date.now()) : null,
-      turnTotalMs: this.mode === "wskazowka" && this.wave
+      turnTotalMs: this.mode === "piec" && this.five
+        ? this.five.totalMs || 1000
+        : this.mode === "wskazowka" && this.wave
         ? this.wave.totalMs
         : this.mode === "klamca" && this.liar ? this.liar.totalMs || this.settings.turnSeconds * 1000 : this.settings.turnSeconds * 1000,
       endReason: this.endReason,
@@ -2065,6 +2195,7 @@ class Room {
         nextPassCost: this.nextCost(this.used(viewer, "passes"), this.settings.passFree, this.settings.passPenalty),
         authorLeft: this.usesLeft(viewer, "reveals", this.settings.authorLimit),
         liarWords: viewer.liarWords,
+        fiveTasks: viewer.fiveTasks,
         liarReady: viewer.liarReady,
         cameraCode: viewer.cameraCode
       },
@@ -2081,18 +2212,22 @@ class Room {
         helpsLeft: this.helpLimit >= UNLIMITED ? null : Math.max(0, this.helpLimit - p.helpsUsed),
         word: p.id !== viewer.id && p.word ? p.word.text : null,
         authorId: p.word && p.word.authorRevealed ? p.word.authorId : null,
-        authorNick: p.word && p.word.authorRevealed ? this.authorName(p.word) : null
+        authorNick: p.word && p.word.authorRevealed ? this.authorName(p.word) : null,
+        fiveTasks: (p.fiveTasks || []).length,
+        ...this.fivePlayerView(p)
       })),
       vote: this.voteView(viewer),
       results: this.phase === "end"
         ? [...this.players]
-            .sort((a, b) => b.score - a.score)
+            .sort((a, b) => b.score - a.score || (b.fiveOut || 0) - (a.fiveOut || 0))
             .map((p) => ({ id: p.id, nick: p.nick, color: p.color, score: p.score, word: p.word ? p.word.text : null }))
         : null,
       summary: this.phase === "end" ? this.summary() : null
     };
   }
 }
+
+Object.assign(Room.prototype, require("./five")({ fail, cleanText, shuffle, textKey }));
 
 class Registry extends EventEmitter {
   constructor() {

@@ -622,7 +622,36 @@ const fx = {
       case "refill":
         sfx.play("refill");
         break;
-      case "liarDiscuss":
+      case "fiveGo":
+        sfx.play("voteStart", 0);
+        this.stamp(id, "5 SEKUND!", "stamp-vote");
+        break;
+      case "fiveResult":
+        if (event.passed) {
+          sfx.play("guessed", 0);
+          this.stamp(id, "✅ ZALICZONE", "stamp-ok");
+        } else {
+          sfx.play("voteFail", 0);
+          this.stamp(id, event.reversed ? "🔄 ✖" : "−" + event.lost + " ❤️", "stamp-fail");
+        }
+        if (event.out) {
+          this.busyUntil = performance.now() + 1800;
+          setTimeout(() => this.overlay([el("div", "fx-big", "💀 " + liarNick(id) + " ODPADA!")], "fx-win", 1800), 500);
+        } else if (event.card) {
+          const info = (store.fiveCards || {})[event.card];
+          if (info) setTimeout(() => this.overlay([el("div", "fx-sub", liarNick(id) + " dostaje kartę"), el("div", "fx-big", info.icon + " " + info.name)], "fx-win", 1700), 500);
+        }
+        break;
+      case "fiveCard": {
+        const info = (store.fiveCards || {})[event.card];
+        sfx.play("author", 0);
+        if (info) {
+          this.stamp(event.targetId || id, info.icon, "stamp-author");
+          this.overlay([el("div", "fx-sub", liarNick(id) + " zagrywa"), el("div", "fx-big", info.icon + " " + info.name)], "fx-win", 1600);
+        }
+        break;
+      }
+      case "liarSkip":
         sfx.play("ready");
         break;
       case "liarVote":
@@ -919,6 +948,7 @@ fetch("/config.json")
   .then((config) => {
     video.available = Boolean(config.video && video.lib);
     store.settingsSpec = Array.isArray(config.settings) ? config.settings : [];
+    store.fiveCards = config.fiveCards || {};
     if (store.state) render();
     renderCameraButtons();
     if (store.state) video.sync(store.state);
@@ -1384,6 +1414,7 @@ function renderLobby(s) {
     if (p.canManage) tags.appendChild(el("span", "tag tag-host", "Host"));
     const readyFlag = s.mode === "klamca" ? p.liarReady : p.wordsReady;
     const showWordsTag = s.mode === "czolko" || (s.mode === "klamca" && s.liarSource === "players");
+    if (s.mode === "piec" && p.fiveTasks) tags.appendChild(el("span", "tag tag-ok", "📝 " + p.fiveTasks + " zadań"));
     if (showWordsTag) tags.appendChild(el("span", `tag ${readyFlag ? "tag-ok" : ""}`, readyFlag ? "✓ hasła" : "pisze hasła…"));
     if (p.hasPhone) tags.appendChild(el("span", "tag tag-ok", "📱 kamerka"));
     if (!p.connected) tags.appendChild(el("span", "tag tag-off", "offline"));
@@ -1411,12 +1442,13 @@ function renderLobby(s) {
   show($("btn-set-time-limit"), s.me.canManage);
 
   const liarPlayersMode = s.mode === "klamca" && s.liarSource === "players";
-  const missing = s.mode === "wskazowka" || (s.mode === "klamca" && !liarPlayersMode)
+  const missing = s.mode === "wskazowka" || s.mode === "piec" || (s.mode === "klamca" && !liarPlayersMode)
     ? []
     : s.players.filter((p) => !(liarPlayersMode ? p.liarReady : p.wordsReady)).map((p) => p.nick);
   const host = s.players.find((p) => p.canManage);
   renderModePicker(s);
   liarWordsForm.sync(s);
+  fiveTasksForm.sync(s);
   const minPlayers = s.mode === "klamca" ? (s.liarSource === "host" ? 4 : 3) : 2;
   const allReady = s.players.length >= minPlayers && missing.length === 0;
   let hint = "";
@@ -1511,6 +1543,19 @@ function updateTile(tile, p, s, leaders) {
     return;
   }
   tile.root.classList.remove("liar-suspect");
+  tile.root.classList.toggle("five-out", Boolean(s.mode === "piec" && p.out));
+  if (s.mode === "piec") {
+    tile.word.dataset.word = "";
+    const label = fiveTileLabel(s, p);
+    if (tile.word.textContent !== label) tile.word.textContent = label;
+    const five = s.five;
+    const isAsker = five && five.askerId === p.id;
+    const isAnswerer = five && five.answererId === p.id;
+    show(tile.badge, Boolean(isAsker || isAnswerer));
+    tile.badge.textContent = isAnswerer ? "Odpowiada" : "Pyta";
+    bindSlot(tile.slot, p);
+    return;
+  }
   if (s.mode === "wskazowka") {
     tile.word.dataset.word = "";
     const label = waveTileLabel(s, p);
@@ -1724,12 +1769,14 @@ function renderMyTile(s, leaders) {
   $("btn-layout").classList.toggle("selected", !store.selfInGrid);
   bindSlot(root.querySelector(".media-slot"), me);
   root.querySelector(".my-nick").textContent = (leaders.has(me.id) ? "👑 " : "") + me.nick;
-  root.querySelector(".my-score").textContent = fmtScore(me.score) + " pkt";
+  root.querySelector(".my-score").textContent = s.mode === "piec" ? (me.out ? "💀 odpadłeś" : "❤️ " + me.lives) : fmtScore(me.score) + " pkt";
   const myAuthor = root.querySelector(".my-author");
   show(myAuthor, Boolean(me.authorNick));
   myAuthor.textContent = me.authorNick ? "✍️ hasło od " + me.authorNick : "";
-  show(root.querySelector(".my-turn-badge"), s.activeId === me.id || Boolean(s.mode === "klamca" && s.liar && s.liar.masterId === me.id));
-  root.querySelector(".my-turn-badge").textContent = s.mode === "wskazowka"
+  show(root.querySelector(".my-turn-badge"), s.activeId === me.id || Boolean(s.mode === "klamca" && s.liar && s.liar.masterId === me.id) || Boolean(s.mode === "piec" && s.five && (s.five.askerId === me.id || s.five.answererId === me.id)));
+  root.querySelector(".my-turn-badge").textContent = s.mode === "piec"
+    ? (s.five && s.five.answererId === me.id ? "Odpowiadasz" : "Pytasz")
+    : s.mode === "wskazowka"
     ? (s.wave && s.wave.stage === "scale" ? "Skala" : "Podpowiadasz")
     : s.mode === "klamca"
       ? (s.liar && s.liar.masterId === me.id ? "Prowadzisz" : s.liar && s.liar.stage === "guess" ? "Zgadujesz" : "Mówisz")
@@ -1926,6 +1973,7 @@ function renderGame(s) {
   renderVote(s);
   renderWave(s);
   renderLiar(s);
+  renderFive(s);
   motion.scoreChanges(s);
 }
 
@@ -2011,6 +2059,7 @@ function renderEnd(s) {
     time: "⏰ Koniec czasu! Wygrywa ten, kto ma najwięcej.",
     pool: "Skończyły się hasła do wylosowania.",
     players: "Zostało za mało graczy.",
+    lastAlive: "💀 Został ostatni żywy!",
     admin: "Admin zakończył grę."
   };
   $("end-reason").textContent = reasons[s.endReason] || "";
@@ -2036,7 +2085,7 @@ function renderEnd(s) {
       if (index === 0) cam.appendChild(el("span", "podium-crown", "👑"));
       const name = el("div", "podium-nick", r.nick);
       const step = el("div", "podium-step");
-      step.append(el("div", "podium-medal", medals[index]), el("div", "podium-score", fmtScore(r.score) + " pkt"));
+      step.append(el("div", "podium-medal", medals[index]), el("div", "podium-score", scoreUnit(s, r.score)));
       spot.append(cam, name, step);
       podium.appendChild(spot);
     }
@@ -2048,7 +2097,7 @@ function renderEnd(s) {
       const slot = el("div", "media-slot");
       slot.dataset.video = "1";
       bindSlot(slot, r);
-      item.append(slot, el("div", "loser-nick", (i + 4) + ". " + r.nick), el("div", "loser-score", fmtScore(r.score) + " pkt"));
+      item.append(slot, el("div", "loser-nick", (i + 4) + ". " + r.nick), el("div", "loser-score", scoreUnit(s, r.score)));
       losers.appendChild(item);
     });
     show($("losers-box"), results.length > 3);
@@ -2070,7 +2119,11 @@ function renderEnd(s) {
   show($("awards-box"), summary.awards.length > 0);
   const history = $("history");
   history.replaceChildren();
-  $("history-title").textContent = summary.rounds || summary.liarRounds ? "Rundy" : "Kto miał jakie hasła";
+  $("history-title").textContent = summary.fiveRounds ? "Pytania" : summary.rounds || summary.liarRounds ? "Rundy" : "Kto miał jakie hasła";
+  if (summary.fiveRounds) {
+    renderFiveRounds(summary.fiveRounds);
+    return;
+  }
   if (summary.rounds) {
     renderWaveRounds(summary.rounds);
     return;
@@ -2156,7 +2209,7 @@ function renderAdminPanel(s) {
   for (const button of document.querySelectorAll("[data-admin=approve], [data-admin=reject]")) button.disabled = !s.vote;
   for (const button of document.querySelectorAll("[data-admin=forceNext]")) {
     button.disabled = s.phase !== "game";
-    button.textContent = s.mode === "wskazowka" ? "Następna runda" : s.mode === "klamca" ? "Dalej / pomiń" : "Wymuś Next";
+    button.textContent = s.mode === "wskazowka" ? "Następna runda" : s.mode === "klamca" || s.mode === "piec" ? "Dalej / pomiń" : "Wymuś Next";
   }
 
   const list = $("admin-players");
@@ -2656,7 +2709,9 @@ function renderModePicker(s) {
     button.classList.toggle("selected", button.dataset.mode === s.mode);
     button.disabled = !s.me.canManage;
   }
-  $("mode-desc").textContent = s.mode === "wskazowka"
+  $("mode-desc").textContent = s.mode === "piec"
+    ? "Jak u WK: pytający czyta zadanie na głos, klika START i odpowiadający ma 5 sekund. Reszta głosuje, czy zaliczyć. Zaliczysz, to przejmujesz pytanie. Nie zaliczysz, tracisz życie. Są karty specjalne, wygrywa ostatni żywy."
+    : s.mode === "wskazowka"
     ? "Ktoś wymyśla skalę (np. zły ↔ dobry kierowca), potem każdy po kolei podpowiada, a reszta ustawia wskazówkę na tarczy. Hasła nie są potrzebne."
     : s.mode === "klamca"
       ? "Wszyscy znają hasło oprócz kłamcy (czasem dostaje podpowiedź). Po kolei mówicie po jednym słowie, potem dyskusja i głosowanie, kto kłamie."
@@ -2791,6 +2846,7 @@ function liarTileLabel(s, p) {
     return p.id === liar.impostorId ? "🕵️ kłamca " + pts : pts || "—";
   }
   if (liar.stage === "vote") return liar.voted.includes(p.id) ? "✅ zagłosował(a)" : "🤔 myśli…";
+  if (liar.stage === "judge") return p.id === liar.impostorId ? "🕵️ czeka na werdykt" : liar.judged.includes(p.id) ? "✅ ocenił(a)" : "🤔 ocenia…";
   const clues = liar.clues.filter((clue) => clue.playerId === p.id).map((clue) => clue.text);
   if (liar.stage === "clues" && liar.speakerId === p.id) return clues.length ? clues.join(" · ") + " · 🗣️" : "🗣️ mówi…";
   return clues.length ? clues.join(" · ") : liar.stage === "setup" ? "⏳" : "…";
@@ -2836,25 +2892,41 @@ function renderLiarPanel(s) {
   const stage = liar.stage;
   show($("liar-setup"), stage === "setup" && isMaster);
   show($("liar-clue-form"), stage === "clues" && isSpeaker);
-  show($("liar-discuss"), stage === "discuss");
-  show($("liar-skip"), stage === "discuss" && canSkip);
-  show($("liar-vote"), stage === "vote" && !isMaster);
+  show($("liar-vote"), stage === "vote");
+  show($("liar-skip"), (stage === "vote" || stage === "judge") && canSkip);
   show($("liar-guess"), stage === "guess" && liar.impostorId === me);
+  show($("liar-judge"), stage === "judge");
   show($("liar-reveal"), stage === "reveal");
   let wait = "";
   if (stage === "setup" && !isMaster) wait = "🎬 " + liarNick(liar.masterId) + " wpisuje hasło…";
   if (stage === "clues" && !isSpeaker) wait = "🗣️ Mówi " + liarNick(liar.speakerId) + " · kółko " + liar.lap + "/" + liar.laps;
-  if (stage === "vote" && isMaster) wait = "Głosują… " + liar.voted.length + "/" + liar.voters;
   if (stage === "guess" && liar.impostorId !== me) wait = "😬 " + liarNick(liar.impostorId) + " był(a) kłamcą! Ostatnia szansa: zgaduje hasło…";
   $("liar-wait").textContent = wait;
   show($("liar-wait"), Boolean(wait));
-  if (stage === "vote" && !isMaster) {
-    $("liar-vote-status").textContent = liar.myVote
-      ? "Twój głos: " + liarNick(liar.myVote) + " (możesz zmienić) · zagłosowali " + liar.voted.length + "/" + liar.voters
-      : "Kto kłamie? Kliknij gracza · zagłosowali " + liar.voted.length + "/" + liar.voters;
+  if (stage === "judge") {
+    const guesser = liarNick(liar.impostorId);
+    $("liar-judge-title").textContent = liar.impostorId === me ? "🤞 Reszta ocenia twój strzał…" : "🤔 " + guesser + " strzela: " + liar.judgeGuess;
+    show($("liar-judge-buttons"), liar.canJudge);
+    $("liar-judge-yes").classList.toggle("selected", liar.myJudge === true);
+    $("liar-judge-no").classList.toggle("selected", liar.myJudge === false);
+    $("liar-judge-status").textContent = (liar.canJudge ? "Hasło: „" + liar.word + "”. Zaliczacie? · " : "") + "ocenili " + liar.judged.length + "/" + liar.judgeCount;
+  }
+  if (stage === "vote") {
+    const last = (liar.meetings || [])[liar.meetings.length - 1];
+    const lastText = last && !last.ejectedId ? " · poprzednio: pominięte" : "";
+    $("liar-vote-title").textContent = "🗳️ Kółko " + liar.lap + "/" + liar.laps + ": kto kłamie?" + lastText;
+    show($("liar-vote-buttons"), liar.canVote);
+    show($("liar-vote-skip"), liar.canVote);
+    $("liar-vote-skip").classList.toggle("selected", liar.myVote === "skip");
+    const myVote = liar.myVote === "skip" ? "⏭️ pomiń" : liar.myVote ? liarNick(liar.myVote) : null;
+    $("liar-vote-status").textContent = !liar.canVote
+      ? "Gracze gadają i głosują… " + liar.voted.length + "/" + liar.voters
+      : myVote
+        ? "Twój głos: " + myVote + " (możesz zmienić) · zagłosowali " + liar.voted.length + "/" + liar.voters
+        : "Gadajcie! Kliknij gracza albo pomiń · zagłosowali " + liar.voted.length + "/" + liar.voters + (liar.lap >= liar.laps ? " · ostatnie kółko!" : "");
     const box = $("liar-vote-buttons");
     box.replaceChildren();
-    for (const p of s.players) {
+    for (const p of liar.canVote ? s.players : []) {
       if (p.id === me || p.id === liar.masterId) continue;
       const button = el("button", "btn help-choice liar-vote-btn" + (liar.myVote === p.id ? " selected" : ""));
       button.style.setProperty("--pc", p.color);
@@ -2869,14 +2941,16 @@ function renderLiarPanel(s) {
     const impostor = liarNick(liar.impostorId);
     let title;
     if (liar.escaped) title = "🏃 Kłamca " + impostor + " uciekł z gry!";
+    else if (liar.wrongEject) title = "😱 Wyrzuciliście " + liarNick(liar.ejectedId) + "! Kłamcą był(a) " + impostor;
     else if (!liar.caught) title = "😈 " + impostor + " oszukał(a) wszystkich!";
     else if (liar.guessCorrect) title = "😏 Złapany, ale " + impostor + " zgadł(a) hasło!";
     else title = "🎉 Złapaliście kłamcę: " + impostor + "!";
     $("liar-reveal-title").textContent = title;
     const details = [];
-    if (liar.guess) details.push("Strzał kłamcy: „" + liar.guess + "”" + (liar.guessCorrect ? " ✅" : " ❌"));
-    const votes = (liar.votes || []).map(([voter, target]) => liarNick(voter) + " → " + liarNick(target));
-    if (votes.length) details.push("Głosy: " + votes.join(", "));
+    if (liar.guess) details.push("Strzał kłamcy: " + liar.guess + (liar.guessCorrect ? " ✅" : " ❌"));
+    const votes = (liar.votes || []).map(([voter, target]) => liarNick(voter) + " → " + (target === "skip" ? "⏭️" : liarNick(target)));
+    details.push("Kółek: " + liar.lap);
+    if (votes.length) details.push("Ostatnie głosy: " + votes.join(", "));
     $("liar-reveal-details").textContent = details.join(" · ");
     const list = $("liar-results");
     list.replaceChildren();
@@ -2885,7 +2959,7 @@ function renderLiarPanel(s) {
       row.style.setProperty("--pc", r.color);
       row.append(
         el("span", "wave-result-nick", (r.impostor ? "🕵️ " : "") + r.nick),
-        el("span", "wave-result-value", r.votedFor ? "głos na " + liarNick(r.votedFor) : "bez głosu"),
+        el("span", "wave-result-value", r.votedFor === "skip" ? "pominął(a)" : r.votedFor ? "głos na " + liarNick(r.votedFor) : "bez głosu"),
         el("span", "wave-result-points", "+" + r.points)
       );
       list.appendChild(row);
@@ -2902,11 +2976,11 @@ function renderLiar(s) {
   show($("liar-stage"), active);
   if (!active) return;
   const liar = s.liar;
-  store.quietTimer = liar.stage === "reveal" || liar.stage === "discuss";
+  store.quietTimer = liar.stage === "reveal" || liar.stage === "vote";
   store.turnTotal = s.turnTotalMs || TURN_TOTAL_MS;
   show($("action-bar"), false);
   show($("help-bar"), false);
-  const stageKey = liar.round + "|" + liar.stage + "|" + liar.speakerId;
+  const stageKey = liar.round + "|" + liar.stage + "|" + liar.speakerId + "|" + liar.lap;
   if (liarUi.stageKey !== stageKey) {
     liarUi.stageKey = stageKey;
     if (liar.stage === "setup" && liar.masterId === s.me.id) {
@@ -2933,9 +3007,9 @@ function renderLiar(s) {
   let banner;
   if (liar.stage === "setup") banner = liar.masterId === s.me.id ? "🎬 Wpisz hasło na rundę" : "🎬 Prowadzący wymyśla hasło";
   else if (liar.stage === "clues") banner = liar.speakerId === s.me.id ? "🗣️ Twoje słowo!" : "🗣️ Mówi: " + liarNick(liar.speakerId);
-  else if (liar.stage === "discuss") banner = "🗣️ Dyskusja";
-  else if (liar.stage === "vote") banner = "🗳️ Głosowanie";
+  else if (liar.stage === "vote") banner = "🗳️ Dyskusja i głosowanie";
   else if (liar.stage === "guess") banner = "😬 Kłamca zgaduje hasło";
+  else if (liar.stage === "judge") banner = "🤔 Zaliczacie strzał?";
   else banner = "🎉 Odsłona!";
   $("turn-banner").replaceChildren(banner + " ", el("span", "turn-timer"));
   $("turn-banner").classList.toggle("mine", s.activeId === s.me.id);
@@ -2947,6 +3021,9 @@ function renderLiar(s) {
 $("liar-setup-submit").onclick = () => act("liar:setup", { word: $("liar-setup-word").value, hint: $("liar-setup-hint").value });
 $("liar-clue-submit").onclick = () => act("liar:clue", { text: $("liar-clue-input").value });
 $("liar-skip").onclick = () => act("liar:skip");
+$("liar-vote-skip").onclick = () => act("liar:vote", { playerId: "skip" });
+$("liar-judge-yes").onclick = () => act("liar:judge", { approve: true });
+$("liar-judge-no").onclick = () => act("liar:judge", { approve: false });
 $("liar-guess-submit").onclick = () => act("liar:guess", { text: $("liar-guess-input").value });
 $("liar-continue").onclick = () => act("liar:continue");
 for (const [inputId, buttonId] of [["liar-setup-word", "liar-setup-submit"], ["liar-setup-hint", "liar-setup-submit"], ["liar-clue-input", "liar-clue-submit"], ["liar-guess-input", "liar-guess-submit"]]) {
@@ -2962,6 +3039,7 @@ function renderLiarRounds(rounds) {
     const head = el("div", "history-head");
     let result;
     if (round.escaped) result = "🏃 uciekł";
+    else if (round.wrongEject) result = "😈 wyrzucili " + round.ejectedNick;
     else if (!round.caught) result = "😈 wygrał";
     else if (round.guessCorrect) result = "😏 zgadł hasło";
     else result = "🎉 złapany";
@@ -2971,7 +3049,7 @@ function renderLiarRounds(rounds) {
     meta.append(
       el("span", "history-icon", "🕵️"),
       el("span", "history-word", round.hint ? (round.hintGiven ? "podpowiedź: " : "bez podpowiedzi (było: ") + round.hint + (round.hintGiven ? "" : ")") : "bez podpowiedzi"),
-      el("span", "history-author", round.guess ? "strzał: " + round.guess : ""),
+      el("span", "history-author", (round.laps ? round.laps + " kół. · " : "") + (round.guess ? "strzał: " + round.guess : "")),
       el("span", "history-time", round.clues.map((clue) => clue.nick + ": " + clue.text).join(", "))
     );
     list.appendChild(meta);
@@ -3042,10 +3120,13 @@ function render() {
   chat.renderAvailability();
   document.body.classList.toggle("mode-wave", s.mode === "wskazowka");
   document.body.classList.toggle("mode-liar", s.mode === "klamca");
+  document.body.classList.toggle("mode-five", s.mode === "piec");
   notes.placeholder = s.mode === "wskazowka"
     ? "Twoje notatki: skojarzenia, podpowiedzi innych… Zostają tylko u ciebie."
     : s.mode === "klamca"
       ? "Notuj podejrzane skojarzenia… Zostają tylko u ciebie."
+      : s.mode === "piec"
+      ? "Notuj, kto ma jakie karty i kto komu dowalił… Zostaje tylko u ciebie."
       : "Co już wiesz o swoim haśle? Notatki zostają tylko u ciebie.";
   if (s.phase !== "game") {
     store.voteDeadline = 0;
@@ -3070,6 +3151,7 @@ function goHome(message) {
   avatarEditor.reset();
   wordsForm.reset();
   liarWordsForm.reset();
+  fiveTasksForm.reset();
   for (const tile of tiles.values()) tile.root.remove();
   tiles.clear();
   show($("admin-toggle"), false);
@@ -3662,3 +3744,229 @@ socket.on("replaced", () => {
   socket.disconnect();
   show($("replaced"), true);
 });
+
+function scoreUnit(s, score) {
+  return s.mode === "piec" ? score + " ❤️" : fmtScore(score) + " pkt";
+}
+
+const fiveUi = { pending: null, stageKey: "" };
+
+function fiveCardInfo(type) {
+  return (store.fiveCards || {})[type] || { icon: "🃏", name: type, text: "", target: null };
+}
+
+function fiveTileLabel(s, p) {
+  if (p.out) return "💀 odpadł(a)" + (p.cards.length ? " · " + p.cards.map((c) => fiveCardInfo(c.type).icon).join("") : "");
+  const hearts = p.lives <= 5 ? "❤️".repeat(p.lives) : "❤️×" + p.lives;
+  const cards = p.cards.map((c) => fiveCardInfo(c.type).icon).join("");
+  const curses = p.curses.map((type) => fiveCardInfo(type).icon).join("");
+  return hearts + (cards ? " · 🃏" + cards : "") + (curses ? " · ⚠️" + curses : "");
+}
+
+const fiveCurseText = {
+  torpedo: "💣 Torpeda: nie zaliczy = −2 ❤️",
+  english: "🫖 odpowiada po angielsku",
+  disco: "🎤 śpiewa w stylu disco polo",
+  four: "4️⃣ musi podać 4 odpowiedzi"
+};
+
+function fiveTargets(s, type, me) {
+  const info = fiveCardInfo(type);
+  return s.players.filter((p) => {
+    if (info.target === "dead") return p.out;
+    if (p.out) return false;
+    if (info.target === "other") return p.id !== me;
+    return true;
+  });
+}
+
+function renderFiveHand(s, five) {
+  const me = findPlayer(s.me.id);
+  const cards = me ? me.cards : [];
+  show($("five-hand-box"), cards.length > 0);
+  const hand = $("five-hand");
+  hand.replaceChildren();
+  for (const card of cards) {
+    const info = fiveCardInfo(card.type);
+    const button = el("button", "btn five-card-btn");
+    button.title = info.text;
+    button.append(el("span", "five-card-icon", info.icon), el("span", "five-card-name", info.name), el("span", "five-card-text", info.text));
+    let usable = five.stage !== "answer";
+    if (card.type === "angel") usable = five.stage === "vote" && !five.angelUsed;
+    if (card.type === "reverse") usable = five.stage === "ready" && five.answererId === s.me.id && !five.reversed;
+    if (card.type !== "revive" && me.out) usable = false;
+    if (card.type === "ally" && me.lives < 2) usable = false;
+    if (info.target && !fiveTargets(s, card.type, s.me.id).length) usable = false;
+    button.disabled = !usable;
+    button.onclick = () => {
+      if (!info.target) {
+        ask("Zagrać kartę " + info.icon + " " + info.name + "?", () => act("five:card", { cardId: card.id }));
+        return;
+      }
+      fiveUi.pending = card;
+      renderFive(store.state);
+    };
+    hand.appendChild(button);
+  }
+  const pending = fiveUi.pending && cards.find((c) => c.id === fiveUi.pending.id) && five.stage !== "answer" ? fiveUi.pending : null;
+  fiveUi.pending = pending;
+  show($("five-target"), Boolean(pending));
+  if (!pending) return;
+  const info = fiveCardInfo(pending.type);
+  $("five-target-title").textContent = info.icon + " " + info.name + ": na kogo?";
+  const box = $("five-target-buttons");
+  box.replaceChildren();
+  for (const p of fiveTargets(s, pending.type, s.me.id)) {
+    const button = el("button", "btn help-choice liar-vote-btn");
+    button.style.setProperty("--pc", p.color);
+    const slot = el("div", "media-slot");
+    bindSlot(slot, p);
+    button.append(slot, el("span", "", p.nick + (p.id === s.me.id ? " (ty)" : "")));
+    button.onclick = async () => {
+      fiveUi.pending = null;
+      await act("five:card", { cardId: pending.id, playerId: p.id });
+      renderFive(store.state);
+    };
+    box.appendChild(button);
+  }
+}
+
+function renderFive(s) {
+  const active = s.mode === "piec" && Boolean(s.five) && s.phase === "game";
+  show($("five-stage"), active);
+  if (!active) return;
+  const five = s.five;
+  const me = s.me.id;
+  const isAsker = five.askerId === me;
+  const isAnswerer = five.answererId === me;
+  store.quietTimer = five.stage !== "answer";
+  store.turnTotal = s.turnTotalMs || 5000;
+  show($("action-bar"), false);
+  show($("help-bar"), false);
+  const asker = liarNick(five.askerId);
+  const answerer = five.answererId ? liarNick(five.answererId) : "";
+  let who;
+  if (five.stage === "pick") who = isAsker ? "🎤 Pytasz! Wybierz, kogo" : "🎤 " + asker + " wybiera, kogo pyta";
+  else if (five.reversed) who = "🔄 Odwrotka! " + asker + " pyta: " + answerer;
+  else who = "🎤 " + asker + " → " + answerer;
+  $("five-who").textContent = who;
+  let task = "";
+  if (five.stage === "pick") task = five.last ? (five.last.passed ? "✅ " : "❌ ") + liarNick(five.last.answererId) + (five.last.passed ? " zaliczył(a)" : " nie zaliczył(a)" + (five.last.out ? " i odpada 💀" : "")) : "⏱️ 5 sekund";
+  else if (five.task) task = five.task;
+  else task = isAnswerer ? "👂 Słuchaj! " + asker + " czyta ci zadanie…" : "🤫 " + asker + " czyta zadanie…";
+  $("five-task").textContent = task;
+  $("five-card").classList.toggle("five-live", five.stage === "answer");
+  $("five-card").classList.toggle("five-mine", isAnswerer && five.stage !== "pick");
+  const curseLines = five.stage === "pick" ? [] : five.curses.map((type) => fiveCurseText[type]).filter(Boolean);
+  if (five.taskAuthor) curseLines.unshift("📝 zadanie od " + five.taskAuthor);
+  $("five-curses").textContent = curseLines.join(" · ");
+  show($("five-count"), five.stage === "answer");
+
+  show($("five-pick"), five.stage === "pick" && isAsker);
+  if (five.stage === "pick" && isAsker) {
+    $("five-pick-status").textContent = "Kogo pytasz?";
+    const box = $("five-pick-buttons");
+    box.replaceChildren();
+    for (const p of s.players) {
+      if (p.id === me || p.out) continue;
+      const button = el("button", "btn help-choice liar-vote-btn");
+      button.style.setProperty("--pc", p.color);
+      const slot = el("div", "media-slot");
+      bindSlot(slot, p);
+      button.append(slot, el("span", "", p.nick + " " + (p.lives <= 5 ? "❤️".repeat(p.lives) : "❤️×" + p.lives)));
+      button.onclick = () => act("five:choose", { playerId: p.id });
+      box.appendChild(button);
+    }
+  }
+  show($("five-ready"), five.stage === "ready" && (isAsker || s.me.canManage));
+  $("five-reroll").disabled = !isAsker;
+  show($("five-vote"), five.stage === "vote");
+  if (five.stage === "vote") {
+    $("five-vote-title").textContent = isAnswerer ? "🤞 Reszta ocenia twoją odpowiedź…" : "Zaliczamy " + answerer + "?";
+    show($("five-vote-buttons"), five.canVote);
+    $("five-yes").classList.toggle("selected", five.myVote === true);
+    $("five-no").classList.toggle("selected", five.myVote === false);
+    $("five-vote-status").textContent = "✅ " + five.yes + " · ❌ " + five.no + " · zagłosowali " + five.voted.length + "/" + five.voters + " (potrzeba " + five.required + " na tak)";
+  }
+  let wait = "";
+  if (five.stage === "ready" && !isAsker && !isAnswerer) wait = asker + " czyta zadanie dla: " + answerer;
+  if (five.stage === "answer") wait = isAnswerer ? "🗣️ GADAJ!" : "🗣️ " + answerer + " odpowiada!";
+  $("five-wait").textContent = wait;
+  show($("five-wait"), Boolean(wait));
+  let banner;
+  if (five.stage === "pick") banner = isAsker ? "🎤 Twoje pytanie!" : "🎤 Pyta: " + asker;
+  else if (five.stage === "ready") banner = isAnswerer ? "👂 Pytają cię!" : isAsker ? "📖 Przeczytaj zadanie na głos!" : "📖 " + asker + " czyta zadanie";
+  else if (five.stage === "answer") banner = isAnswerer ? "⏱️ TWOJE 5 SEKUND!" : "⏱️ Odpowiada: " + answerer;
+  else banner = "🗳️ Zaliczamy?";
+  $("turn-banner").replaceChildren(banner + " ", el("span", "turn-timer"));
+  $("turn-banner").classList.toggle("mine", isAsker || isAnswerer);
+  renderFiveHand(s, five);
+  updateTurnTimers();
+}
+
+$("five-reroll").onclick = () => act("five:reroll");
+$("five-start").onclick = () => act("five:start");
+$("five-yes").onclick = () => act("five:vote", { approve: true });
+$("five-no").onclick = () => act("five:vote", { approve: false });
+$("five-target-cancel").onclick = () => {
+  fiveUi.pending = null;
+  if (store.state) renderFive(store.state);
+};
+
+const fiveTasksForm = (() => {
+  let dirty = false;
+  const input = $("five-tasks-input");
+  function list() {
+    return input.value.split("\n").map((line) => line.trim()).filter(Boolean);
+  }
+  function refresh() {
+    const count = list().length;
+    const saved = store.state ? (store.state.me.fiveTasks || []).length : 0;
+    $("five-tasks-status").textContent = dirty ? count + " zadań · niezapisane zmiany" : saved ? "✓ Zapisane: " + saved : "";
+    $("btn-save-five-tasks").disabled = !dirty || count > 30;
+    if (count > 30) $("five-tasks-status").textContent = "Maksymalnie 30 zadań";
+  }
+  input.addEventListener("input", () => {
+    dirty = true;
+    refresh();
+  });
+  $("btn-save-five-tasks").onclick = async () => {
+    const response = await act("setFiveTasks", { tasks: list() });
+    if (response.ok) {
+      dirty = false;
+      toast("Zadania zapisane");
+      refresh();
+    }
+  };
+  function sync(s) {
+    if (!dirty && document.activeElement !== input) input.value = (s.me.fiveTasks || []).join("\n");
+    refresh();
+  }
+  function reset() {
+    dirty = false;
+    input.value = "";
+  }
+  return { sync, reset };
+})();
+
+function renderFiveRounds(rounds) {
+  const history = $("history");
+  const card = el("div", "history-player");
+  const head = el("div", "history-head");
+  const passed = rounds.filter((r) => r.passed).length;
+  head.append(el("span", "history-nick", "⏱️ " + rounds.length + " pytań"), el("span", "history-stats", "✅ " + passed + " · ❌ " + (rounds.length - passed)));
+  const list = el("ol", "history-list");
+  for (const round of rounds) {
+    const item = el("li", "history-item");
+    item.append(
+      el("span", "history-icon", round.passed ? "✅" : round.out ? "💀" : "❌"),
+      el("span", "history-word", round.task),
+      el("span", "history-author", (round.reversed ? "🔄 " : "") + round.askerNick + " → " + round.answererNick),
+      el("span", "history-time", (round.authorNick ? "zadanie od " + round.authorNick + " · " : "") + (round.lost ? "−" + round.lost + " ❤️" : ""))
+    );
+    list.appendChild(item);
+  }
+  card.append(head, list);
+  history.appendChild(card);
+  show($("history-box"), rounds.length > 0);
+}
