@@ -2,35 +2,35 @@ const crypto = require("crypto");
 const { EventEmitter } = require("events");
 const { isListedWord, randomWords } = require("./words");
 const { randomScale } = require("./scales");
+const { SETTINGS_BY_KEY, defaultSettings } = require("./settings");
 
-const MODES = ["czolko", "wskazowka"];
-const MODE_DEFAULT_LIMIT = { czolko: 5, wskazowka: 20 };
-const WAVE_SCALE_MS = 60000;
+const MODES = ["czolko", "wskazowka", "klamca"];
+const MODE_DEFAULT_LIMIT = { czolko: 5, wskazowka: 20, klamca: 10 };
+const LIAR_SOURCES = ["players", "host"];
+const LIAR_WORDS_PER_PLAYER = 5;
+const LIAR_MAX_WORD = 40;
+const LIAR_MAX_HINT = 40;
+const LIAR_MAX_CLUE = 30;
+const LIAR_GUESS_MS = 30000;
+const LIAR_REVEAL_MS = 20000;
+const LIAR_HINT_CHANCES = [0, 25, 50, 75, 100];
+const LIAR_MIN_PLAYERS = 3;
 const WAVE_MAX_SCALE_SIDE = 30;
-const WAVE_CLUE_MS = 60000;
-const WAVE_GUESS_MS = 45000;
 const WAVE_REVEAL_MS = 15000;
 const WAVE_MAX_CLUE = 60;
-const WAVE_BANDS = [[4, 4], [11, 3], [18, 2]];
-const WAVE_PSYCHIC_MAX = 3;
 
 const REFILL_SIZE = 10;
 const GAME_AUTHOR = "Losowanie gry";
 
-const CUSTOM_WORD_CHANCE = 0.8;
 
 const WORDS_PER_PLAYER = 10;
 const MAX_STARRED = 2;
 const MAX_WORD_LENGTH = 40;
 const MAX_NICK_LENGTH = 16;
 const MAX_PLAYERS = 12;
-const VOTE_TIME_MS = 30000;
-const TURN_TIME_MS = 45000;
 const DEFAULT_POINT_LIMIT = 5;
-const HELP_TIME_MS = 60000;
 const DEFAULT_HELP_LIMIT = 1;
 const MAX_HELP_LIMIT = 10;
-const AUTHOR_REVEAL_COST = 0.5;
 const MAX_TIME_LIMIT_MIN = 240;
 const MIN_POINT_LIMIT = 1;
 const MAX_POINT_LIMIT = 100;
@@ -81,6 +81,42 @@ function maskSecret(text, secret) {
   return text.replace(pattern, (match) => "█".repeat(Math.min(match.length, 12)));
 }
 
+function normalizeGuess(text) {
+  return String(text || "")
+    .toLocaleLowerCase("pl")
+    .replace(/ł/g, "l")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function editDistance(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const current = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = current;
+    }
+  }
+  return row[b.length];
+}
+
+function guessMatches(guess, answer) {
+  const a = normalizeGuess(guess);
+  const b = normalizeGuess(answer);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const tolerance = b.length >= 8 ? 2 : b.length >= 4 ? 1 : 0;
+  return editDistance(a, b) <= tolerance;
+}
+
+function formatPoints(value) {
+  return String(Math.round(value * 10) / 10).replace(".", ",");
+}
+
 function cleanText(value, maxLength) {
   if (typeof value !== "string") return "";
   return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
@@ -129,6 +165,14 @@ class Room {
     this.waveScale = null;
     this.waveQueue = [];
     this.waveSet = 0;
+    this.settings = defaultSettings();
+    this.liar = null;
+    this.liarSource = "players";
+    this.liarHintChance = 50;
+    this.liarRound = 0;
+    this.liarPool = [];
+    this.liarHistory = [];
+    this.lastImpostorId = null;
     this.cleanupTimer = null;
     this.expiresAt = Date.now() + LOBBY_TIMEOUT_MS;
     this.expiryTimer = null;
@@ -196,6 +240,8 @@ class Room {
       words: [],
       starred: [],
       wordsReady: false,
+      liarWords: [],
+      liarReady: false,
       connected: false,
       socketId: null,
       score: 0,
@@ -216,7 +262,7 @@ class Room {
         this.endHelpNow(`Pomoc przerwana, ${player.nick} opuszcza grę`);
       }
       if (this.mode === "wskazowka") this.waveRemovePlayer(player);
-      else if (this.activeId === player.id) this.advanceTurn();
+      else if (this.mode === "czolko" && this.activeId === player.id) this.advanceTurn();
       if (player.word) this.pool.push(player.word);
       player.word = null;
     }
@@ -233,6 +279,7 @@ class Room {
 
     if (this.phase === "game") {
       if (this.players.length < 2) this.finish("players");
+      else if (this.mode === "klamca") this.liarAfterRemoval(player);
       else {
         this.evaluateVote();
         this.evaluateWave();
@@ -247,6 +294,7 @@ class Room {
     if (!connected) player.socketId = null;
     this.evaluateVote();
     this.evaluateWave();
+    this.evaluateLiarVote();
     this.hub.updatePresence(this);
     this.changed();
   }
@@ -369,6 +417,7 @@ class Room {
 
   summary() {
     if (this.mode === "wskazowka") return this.waveSummary();
+    if (this.mode === "klamca") return this.liarSummary();
     const awards = [];
     const seconds = (ms) => Math.max(1, Math.round(ms / 1000));
     const time = (ms) => {
@@ -426,10 +475,10 @@ class Room {
     if (player.word.authorRevealed) fail("Autor jest już odkryty");
     const authorNick = this.authorName(player.word);
     player.word.authorRevealed = true;
-    player.score -= AUTHOR_REVEAL_COST;
+    player.score -= this.settings.authorCost;
     this.stat(player, "reveals");
     this.fx("author", { playerId: player.id });
-    this.announce(`🕵️ ${player.nick} odkrywa autora hasła (−0,5): ${authorNick}`);
+    this.announce(`🕵️ ${player.nick} odkrywa autora hasła (−${formatPoints(this.settings.authorCost)}): ${authorNick}`);
     this.changed();
   }
 
@@ -474,6 +523,18 @@ class Room {
       this.changed();
       return;
     }
+    if (this.mode === "klamca") {
+      if (this.liarSource === "host") {
+        if (this.players.length < LIAR_MIN_PLAYERS + 1) fail("Z hostem jako prowadzącym potrzeba co najmniej 4 osób");
+      } else {
+        if (this.players.length < LIAR_MIN_PLAYERS) fail("Potrzeba co najmniej 3 graczy");
+        const notReady = this.players.filter((p) => !p.liarReady).map((p) => p.nick);
+        if (notReady.length) fail(`Brakuje haseł od: ${notReady.join(", ")}`);
+      }
+      this.beginGame();
+      this.changed();
+      return;
+    }
     const missing = this.players.filter((p) => !p.wordsReady).map((p) => p.nick);
     if (missing.length) fail(`Brakuje haseł od: ${missing.join(", ")}`);
     this.beginGame();
@@ -484,7 +545,9 @@ class Room {
     this.clearVote();
     this.clearHelp();
     this.clearWave();
+    this.clearLiar();
     if (this.mode === "wskazowka") return this.beginWave();
+    if (this.mode === "klamca") return this.beginLiar();
     this.pool = [];
     this.history = [];
     this.usedTexts = new Set();
@@ -525,7 +588,8 @@ class Room {
     this.stopTurnTimer();
     if (this.mode !== "czolko" || this.phase !== "game" || this.vote || this.help || !this.activeId) return;
     const activeId = this.activeId;
-    this.turnEndsAt = Date.now() + TURN_TIME_MS;
+    const turnMs = this.settings.turnSeconds * 1000;
+    this.turnEndsAt = Date.now() + turnMs;
     this.turnTimer = setTimeout(() => {
       if (this.phase !== "game" || this.vote || this.help || this.activeId !== activeId) return;
       const player = this.getPlayer(activeId);
@@ -533,7 +597,7 @@ class Room {
       this.fx("timeout", { playerId: activeId });
       this.advanceTurn();
       this.changed();
-    }, TURN_TIME_MS);
+    }, turnMs);
   }
 
   authorName(word) {
@@ -573,7 +637,7 @@ class Room {
     const listed = candidates.filter((index) => !this.pool[index].custom);
     let group = candidates;
     if (starred.length) group = starred;
-    else if (custom.length && listed.length) group = crypto.randomInt(1000) < CUSTOM_WORD_CHANCE * 1000 ? custom : listed;
+    else if (custom.length && listed.length) group = crypto.randomInt(100) < this.settings.customChance ? custom : listed;
     const index = group[crypto.randomInt(group.length)];
     player.word = this.pool.splice(index, 1)[0];
     player.word.drawnAt = Date.now();
@@ -626,9 +690,9 @@ class Room {
     const word = player.word;
     this.record(player, "passed");
     this.stat(player, "passes");
-    player.score -= 1;
+    player.score -= this.settings.passPenalty;
     player.word = null;
-    this.announce(`${player.nick} pasuje (−1). Hasło: ${word ? word.text : "?"}`);
+    this.announce(`${player.nick} pasuje (−${formatPoints(this.settings.passPenalty)}). Hasło: ${word ? word.text : "?"}`);
     this.fx("pass", { playerId: player.id });
     this.emit("wordChanged", player, "passed", word ? word.text : "");
     if (!this.drawWord(player)) this.finish("pool");
@@ -643,14 +707,14 @@ class Room {
       guesserId: player.id,
       yes: new Set(),
       no: new Set(),
-      endsAt: Date.now() + VOTE_TIME_MS,
+      endsAt: Date.now() + this.settings.voteSeconds * 1000,
       timer: null
     };
     vote.timer = setTimeout(() => {
       if (this.vote !== vote) return;
       this.cancelVote("Czas na głosowanie minął");
       this.changed();
-    }, VOTE_TIME_MS);
+    }, this.settings.voteSeconds * 1000);
     this.vote = vote;
     this.stopTurnTimer();
     this.fx("voteStart", { playerId: player.id });
@@ -666,17 +730,20 @@ class Room {
     if (helper === player) fail("Wybierz innego gracza");
     if (!helper.connected) fail("Ten gracz jest offline");
     player.helpsUsed += 1;
+    player.score -= this.settings.helpCost;
     if (player.word) player.word.helps = (player.word.helps || 0) + 1;
     this.stopTurnTimer();
-    const help = { askerId: player.id, helperId: helper.id, endsAt: Date.now() + HELP_TIME_MS, timer: null };
+    const helpMs = this.settings.helpSeconds * 1000;
+    const help = { askerId: player.id, helperId: helper.id, endsAt: Date.now() + helpMs, timer: null };
     help.timer = setTimeout(() => {
       if (this.help !== help) return;
       this.endHelpNow("Koniec czasu na pomoc");
       this.changed();
-    }, HELP_TIME_MS);
+    }, helpMs);
     this.help = help;
     this.fx("help", { playerId: player.id, helperId: helper.id });
-    this.announce(`🆘 ${player.nick} prosi o pomoc: ${helper.nick}. 60 sekund rozmowy!`);
+    const cost = this.settings.helpCost ? ` (−${formatPoints(this.settings.helpCost)})` : "";
+    this.announce(`🆘 ${player.nick} prosi o pomoc${cost}: ${helper.nick}. ${this.settings.helpSeconds} sekund rozmowy!`);
     this.changed();
   }
 
@@ -758,9 +825,9 @@ class Room {
     const word = guesser.word;
     this.record(guesser, "guessed");
     this.stat(guesser, "guessed");
-    guesser.score += 1;
+    guesser.score += this.settings.guessPoints;
     guesser.word = null;
-    this.announce(`${guesser.nick} zgaduje! (+1) Hasło: ${word ? word.text : "?"}`);
+    this.announce(`${guesser.nick} zgaduje! (+${formatPoints(this.settings.guessPoints)}) Hasło: ${word ? word.text : "?"}`);
     this.fx("guessed", { playerId: guesser.id });
     this.emit("wordChanged", guesser, "guessed", word ? word.text : "");
     if (this.reachedLimit(guesser)) return this.finish("limit");
@@ -773,6 +840,7 @@ class Room {
     this.clearVote();
     this.clearHelp();
     this.clearWave();
+    this.clearLiar();
     this.stopTurnTimer();
     if (this.phase === "game" && this.mode === "czolko") for (const p of this.players) this.record(p, "unfinished");
     const wasPlaying = this.phase === "game";
@@ -788,6 +856,7 @@ class Room {
     this.clearVote();
     this.clearHelp();
     this.clearWave();
+    this.clearLiar();
     this.stopTurnTimer();
     this.phase = "lobby";
     this.pool = [];
@@ -809,6 +878,11 @@ class Room {
     if (this.mode === "wskazowka") {
       this.announce("Host przechodzi do następnej rundy");
       this.waveContinue(null, true);
+      this.changed();
+      return;
+    }
+    if (this.mode === "klamca") {
+      this.liarForceNext();
       this.changed();
       return;
     }
@@ -934,8 +1008,8 @@ class Room {
       locked: new Set(),
       results: null,
       psychicPoints: 0,
-      endsAt: Date.now() + WAVE_SCALE_MS,
-      totalMs: WAVE_SCALE_MS,
+      endsAt: Date.now() + this.settings.waveScaleSeconds * 1000,
+      totalMs: this.settings.waveScaleSeconds * 1000,
       timer: null
     };
     wave.timer = setTimeout(() => {
@@ -944,7 +1018,7 @@ class Room {
       this.announce(`Czas minął! Losuję skalę: ${scale.left} ↔ ${scale.right}`);
       this.applyScale(author, scale);
       this.changed();
-    }, WAVE_SCALE_MS);
+    }, this.settings.waveScaleSeconds * 1000);
     this.wave = wave;
     this.fx("turn", { playerId: author.id });
   }
@@ -996,8 +1070,8 @@ class Room {
       locked: new Set(),
       results: null,
       psychicPoints: 0,
-      endsAt: Date.now() + WAVE_CLUE_MS,
-      totalMs: WAVE_CLUE_MS,
+      endsAt: Date.now() + this.settings.waveClueSeconds * 1000,
+      totalMs: this.settings.waveClueSeconds * 1000,
       timer: null
     };
     wave.timer = setTimeout(() => {
@@ -1006,7 +1080,7 @@ class Room {
       this.fx("timeout", { playerId: psychic.id });
       this.nextWaveRound();
       this.changed();
-    }, WAVE_CLUE_MS);
+    }, this.settings.waveClueSeconds * 1000);
     this.wave = wave;
     this.fx("turn", { playerId: psychic.id });
   }
@@ -1052,13 +1126,13 @@ class Room {
     clearTimeout(wave.timer);
     wave.clue = clue;
     wave.stage = "guess";
-    wave.endsAt = Date.now() + WAVE_GUESS_MS;
-    wave.totalMs = WAVE_GUESS_MS;
+    wave.endsAt = Date.now() + this.settings.waveGuessSeconds * 1000;
+    wave.totalMs = this.settings.waveGuessSeconds * 1000;
     wave.timer = setTimeout(() => {
       if (this.wave !== wave || wave.stage !== "guess") return;
       this.waveReveal();
       this.changed();
-    }, WAVE_GUESS_MS);
+    }, this.settings.waveGuessSeconds * 1000);
     this.fx("waveClue", { playerId: player.id });
     this.announce(`🔮 ${player.nick}: „${clue}”. Ustawiajcie wskazówki!`);
     this.changed();
@@ -1111,8 +1185,10 @@ class Room {
 
   wavePoints(value, target) {
     if (value === null || value === undefined) return 0;
+    if (Math.round(value) === target) return this.settings.wavePerfect;
     const distance = Math.abs(value - target);
-    for (const [limit, points] of WAVE_BANDS) if (distance <= limit) return points;
+    const bands = [[4, this.settings.waveBull], [11, this.settings.waveNear], [18, this.settings.waveFar]];
+    for (const [limit, points] of bands) if (distance <= limit) return points;
     return 0;
   }
 
@@ -1126,12 +1202,13 @@ class Room {
       const value = wave.guesses.has(p.id) ? wave.guesses.get(p.id) : null;
       const points = this.wavePoints(value, wave.target);
       p.score += points;
-      results.push({ id: p.id, nick: p.nick, color: p.color, value, points, distance: value === null ? null : Math.abs(value - wave.target) });
+      const distance = value === null ? null : Math.abs(value - wave.target);
+      results.push({ id: p.id, nick: p.nick, color: p.color, value, points, distance, perfect: value !== null && Math.round(value) === wave.target, bull: distance !== null && distance <= 4, near: distance !== null && distance <= 11 });
     }
     const psychic = this.getPlayer(wave.psychicId);
-    const psychicPoints = Math.min(WAVE_PSYCHIC_MAX, results.filter((r) => r.points >= 3).length);
+    const psychicPoints = Math.min(this.settings.wavePsychicMax, results.filter((r) => r.near).length);
     if (psychic) psychic.score += psychicPoints;
-    wave.results = results.sort((a, b) => b.points - a.points);
+    wave.results = results.sort((a, b) => b.points - a.points || (a.distance ?? 999) - (b.distance ?? 999));
     wave.psychicPoints = psychicPoints;
     wave.stage = "reveal";
     wave.endsAt = Date.now() + WAVE_REVEAL_MS;
@@ -1155,7 +1232,7 @@ class Room {
       this.changed();
     }, WAVE_REVEAL_MS);
     const best = wave.results[0];
-    this.fx("waveReveal", { playerId: wave.psychicId, bullseye: Boolean(best && best.points === 4) });
+    this.fx("waveReveal", { playerId: wave.psychicId, bullseye: Boolean(best && best.bull), perfect: wave.results.some((r) => r.perfect) });
     this.announce(`🎯 Odsłona! Cel: ${Math.round(wave.target)}. ${psychic ? psychic.nick : "Podpowiadający"} +${psychicPoints}`);
   }
 
@@ -1244,9 +1321,11 @@ class Room {
       awards.push({ icon: "🔮", title: "Telepata", text: `${telepath.nick}: ${telepath.points} pkt za podpowiedzi` });
     }
     const bullseyes = new Map();
-    for (const hit of hits) if (hit.points === 4) bullseyes.set(hit.nick, (bullseyes.get(hit.nick) || 0) + 1);
+    for (const hit of hits) if (hit.bull) bullseyes.set(hit.nick, (bullseyes.get(hit.nick) || 0) + 1);
     const bestEye = [...bullseyes.entries()].sort((a, b) => b[1] - a[1])[0];
     if (bestEye) awards.push({ icon: "👁️", title: "Sokole oko", text: `${bestEye[0]}: ${bestEye[1]}× w sam środek` });
+    const perfect = hits.find((hit) => hit.perfect);
+    if (perfect) awards.push({ icon: "💯", title: "Perfekcja", text: `${perfect.nick} trafił(a) idealnie przy „${perfect.round.clue}”` });
     return {
       mode: "wskazowka",
       awards,
@@ -1261,6 +1340,534 @@ class Room {
         target: round.target,
         psychicPoints: round.psychicPoints,
         results: round.results.map((r) => ({ nick: r.nick, color: r.color, value: r.value, points: r.points }))
+      })),
+      totalGuessed: 0
+    };
+  }
+
+  setSetting(player, key, rawValue) {
+    this.requireManager(player);
+    this.requirePhase("lobby");
+    const spec = SETTINGS_BY_KEY.get(key);
+    if (!spec) fail("Nieznane ustawienie");
+    const number = Number(rawValue);
+    if (!Number.isFinite(number)) fail("Podaj liczbę");
+    if (number < spec.min || number > spec.max) fail(`${spec.label}: od ${spec.min} do ${spec.max}`);
+    const value = Math.round(Math.round(number / spec.step) * spec.step * 100) / 100;
+    this.settings[key] = value;
+    this.announce(`⚙️ ${spec.label}: ${formatPoints(value)}`);
+    this.changed();
+  }
+
+  resetSettings(player, mode) {
+    this.requireManager(player);
+    this.requirePhase("lobby");
+    const defaults = defaultSettings();
+    for (const [key, spec] of SETTINGS_BY_KEY) if (!mode || spec.mode === mode) this.settings[key] = defaults[key];
+    this.announce("⚙️ Przywrócono domyślne ustawienia");
+    this.changed();
+  }
+
+  setLiarSettings(player, settings) {
+    this.requireManager(player);
+    const { source, hintChance } = settings || {};
+    if (source !== undefined) {
+      this.requirePhase("lobby");
+      if (!LIAR_SOURCES.includes(source)) fail("Nieznane źródło haseł");
+      this.liarSource = source;
+      this.announce(source === "host" ? "Kłamca: hasła wpisuje host" : "Kłamca: każdy wpisuje 5 haseł");
+    }
+    if (hintChance !== undefined) {
+      const chance = Number(hintChance);
+      if (!LIAR_HINT_CHANCES.includes(chance)) fail("Nieprawidłowa szansa na podpowiedź");
+      this.liarHintChance = chance;
+      this.announce(`Szansa na podpowiedź dla kłamcy: ${chance}%`);
+    }
+    this.changed();
+  }
+
+  setLiarWords(player, entries) {
+    this.requirePhase("lobby");
+    if (!Array.isArray(entries) || entries.length !== LIAR_WORDS_PER_PLAYER) fail(`Potrzeba dokładnie ${LIAR_WORDS_PER_PLAYER} haseł`);
+    const cleaned = entries.map((entry) => ({
+      word: cleanText(entry && entry.word, LIAR_MAX_WORD),
+      hint: cleanText(entry && entry.hint, LIAR_MAX_HINT)
+    }));
+    if (cleaned.some((entry) => !entry.word || !entry.hint)) fail("Uzupełnij wszystkie hasła i podpowiedzi");
+    const seen = new Set();
+    for (const entry of cleaned) {
+      const key = textKey(entry.word);
+      if (seen.has(key)) fail(`Hasło „${entry.word}” się powtarza`);
+      seen.add(key);
+      if (guessMatches(entry.hint, entry.word)) fail(`Podpowiedź do „${entry.word}” nie może być samym hasłem`);
+    }
+    if (!player.liarReady) this.fx("ready", { playerId: player.id });
+    player.liarWords = cleaned;
+    player.liarReady = true;
+    this.changed();
+  }
+
+  liarMasterId() {
+    return this.liarSource === "host" ? this.hostId : null;
+  }
+
+  liarParticipants() {
+    const masterId = this.liar ? this.liar.masterId : this.liarMasterId();
+    return this.players.filter((p) => p.id !== masterId);
+  }
+
+  clearLiar() {
+    if (this.liar) clearTimeout(this.liar.timer);
+    this.liar = null;
+  }
+
+  liarSchedule(ms, callback) {
+    const liar = this.liar;
+    clearTimeout(liar.timer);
+    liar.endsAt = ms ? Date.now() + ms : 0;
+    liar.totalMs = ms || 0;
+    liar.timer = ms
+      ? setTimeout(() => {
+          if (this.liar !== liar) return;
+          callback();
+          this.changed();
+        }, ms)
+      : null;
+  }
+
+  beginLiar() {
+    this.history = [];
+    this.liarHistory = [];
+    this.liarRound = 0;
+    this.lastImpostorId = null;
+    this.liarPool = [];
+    for (const p of this.players) {
+      p.score = 0;
+      p.word = null;
+      p.helpsUsed = 0;
+      p.stats = { guessed: 0, passes: 0, reveals: 0 };
+      if (this.liarSource === "players") {
+        for (const entry of p.liarWords) this.liarPool.push({ word: entry.word, hint: entry.hint, authorId: p.id });
+      }
+    }
+    shuffle(this.liarPool);
+    this.phase = "game";
+    this.endReason = null;
+    this.gameStartedAt = Date.now();
+    this.scheduleGameEnd();
+    this.hub.scheduleExpiry(this);
+    this.fx("start", { playerId: this.hostId });
+    this.announce(this.liarSource === "host" ? "🕵️ Kłamca! Host prowadzi grę" : "🕵️ Kłamca! Hasła losowane z waszych");
+    this.startLiarRound();
+  }
+
+  pickImpostor(candidates) {
+    const pool = candidates.length > 1 ? candidates.filter((p) => p.id !== this.lastImpostorId) : candidates;
+    return pool[crypto.randomInt(pool.length)];
+  }
+
+  startLiarRound() {
+    this.clearLiar();
+    if (this.phase !== "game") return;
+    this.liarRound += 1;
+    if (this.liarSource === "host") {
+      const master = this.getPlayer(this.hostId);
+      this.liar = this.newLiarState({ masterId: master ? master.id : null, stage: "setup" });
+      this.activeId = master ? master.id : null;
+      if (master) this.fx("turn", { playerId: master.id });
+      return;
+    }
+    const connected = this.players.filter((p) => p.connected);
+    if (connected.length < LIAR_MIN_PLAYERS) return this.finish("players");
+    const order = shuffle([...connected]).sort((a, b) => (a.id === this.lastImpostorId) - (b.id === this.lastImpostorId));
+    for (const candidate of order) {
+      const options = this.liarPool.map((entry, index) => ({ entry, index })).filter((o) => o.entry.authorId !== candidate.id);
+      if (!options.length) continue;
+      const choice = options[crypto.randomInt(options.length)];
+      this.liarPool.splice(choice.index, 1);
+      this.liar = this.newLiarState({ masterId: null, stage: "clues" });
+      return this.beginClues(choice.entry.word, choice.entry.hint, candidate, choice.entry.authorId);
+    }
+    this.finish("pool");
+  }
+
+  newLiarState({ masterId, stage }) {
+    return {
+      round: this.liarRound,
+      stage,
+      masterId,
+      word: null,
+      hint: null,
+      hintGiven: false,
+      impostorId: null,
+      authorId: null,
+      order: [],
+      turn: 0,
+      clues: [],
+      votes: new Map(),
+      caught: false,
+      guess: null,
+      guessCorrect: false,
+      escaped: false,
+      results: null,
+      endsAt: 0,
+      totalMs: 0,
+      timer: null
+    };
+  }
+
+  liarSetup(player, rawWord, rawHint) {
+    this.requirePhase("game");
+    this.requireMode("klamca");
+    const liar = this.liar;
+    if (!liar || liar.stage !== "setup") fail("To teraz niedostępne");
+    if (liar.masterId !== player.id) fail("Hasło wpisuje prowadzący");
+    const word = cleanText(rawWord, LIAR_MAX_WORD);
+    const hint = cleanText(rawHint, LIAR_MAX_HINT);
+    if (!word) fail("Wpisz hasło");
+    if (hint && guessMatches(hint, word)) fail("Podpowiedź nie może być samym hasłem");
+    const candidates = this.liarParticipants().filter((p) => p.connected);
+    if (candidates.length < LIAR_MIN_PLAYERS) fail("Za mało połączonych graczy");
+    this.beginClues(word, hint, this.pickImpostor(candidates), player.id);
+    this.changed();
+  }
+
+  beginClues(word, hint, impostor, authorId) {
+    const liar = this.liar;
+    liar.word = word;
+    liar.hint = hint || null;
+    liar.hintGiven = Boolean(hint) && crypto.randomInt(100) < this.liarHintChance;
+    liar.impostorId = impostor.id;
+    liar.authorId = authorId;
+    this.lastImpostorId = impostor.id;
+    const order = shuffle(this.liarParticipants().filter((p) => p.connected).map((p) => p.id));
+    if (order[0] === impostor.id && order.length > 1) {
+      const swap = 1 + crypto.randomInt(order.length - 1);
+      [order[0], order[swap]] = [order[swap], order[0]];
+    }
+    liar.order = order;
+    liar.turn = 0;
+    liar.stage = "clues";
+    this.fx("liarRound", { round: liar.round });
+    this.announce(`🕵️ Runda ${liar.round}! Jeden z was nie zna hasła…`);
+    this.startClueTurn();
+  }
+
+  liarSpeakerId() {
+    const liar = this.liar;
+    if (!liar || liar.stage !== "clues" || !liar.order.length) return null;
+    return liar.order[liar.turn % liar.order.length];
+  }
+
+  startClueTurn() {
+    const liar = this.liar;
+    const total = liar.order.length * this.settings.liarLaps;
+    while (liar.turn < total) {
+      const speaker = this.getPlayer(this.liarSpeakerId());
+      if (speaker && speaker.connected) break;
+      if (speaker) liar.clues.push({ playerId: speaker.id, text: "—", lap: Math.floor(liar.turn / liar.order.length) + 1, skipped: true });
+      liar.turn += 1;
+    }
+    if (liar.turn >= total) return this.startLiarDiscussion();
+    const speakerId = this.liarSpeakerId();
+    this.activeId = speakerId;
+    this.liarSchedule(this.settings.liarClueSeconds * 1000, () => {
+      const speaker = this.getPlayer(speakerId);
+      liar.clues.push({ playerId: speakerId, text: "—", lap: Math.floor(liar.turn / liar.order.length) + 1, skipped: true });
+      if (speaker) this.announce(`${speaker.nick} nie zdążył(a) ze słowem`);
+      liar.turn += 1;
+      this.startClueTurn();
+    });
+    this.fx("turn", { playerId: speakerId });
+  }
+
+  liarClue(player, rawText) {
+    this.requirePhase("game");
+    this.requireMode("klamca");
+    const liar = this.liar;
+    if (!liar || liar.stage !== "clues") fail("To teraz niedostępne");
+    if (this.liarSpeakerId() !== player.id) fail("Teraz mówi ktoś inny");
+    const text = cleanText(rawText, LIAR_MAX_CLUE);
+    if (!text) fail("Wpisz słowo");
+    if (guessMatches(text, liar.word) || normalizeGuess(text).includes(normalizeGuess(liar.word))) fail("Nie możesz podać samego hasła 😉");
+    liar.clues.push({ playerId: player.id, text, lap: Math.floor(liar.turn / liar.order.length) + 1, skipped: false });
+    liar.turn += 1;
+    this.startClueTurn();
+    this.changed();
+  }
+
+  startLiarDiscussion() {
+    const liar = this.liar;
+    liar.stage = "discuss";
+    this.activeId = null;
+    this.fx("liarDiscuss");
+    this.announce("🗣️ Dyskusja! Kto kłamie?");
+    this.liarSchedule(this.settings.liarDiscussSeconds * 1000, () => this.startLiarVote());
+  }
+
+  liarSkipDiscussion(player) {
+    this.requirePhase("game");
+    this.requireMode("klamca");
+    const liar = this.liar;
+    if (!liar || liar.stage !== "discuss") fail("To teraz niedostępne");
+    if (!this.canManage(player) && liar.masterId !== player.id) fail("Tylko host może przejść do głosowania");
+    this.startLiarVote();
+    this.changed();
+  }
+
+  startLiarVote() {
+    const liar = this.liar;
+    liar.stage = "vote";
+    this.activeId = null;
+    this.fx("liarVote");
+    this.announce("🗳️ Głosowanie! Kliknij, kto twoim zdaniem kłamie");
+    this.liarSchedule(this.settings.liarVoteSeconds * 1000, () => this.resolveLiarVote());
+  }
+
+  liarVoters() {
+    return this.liarParticipants().filter((p) => p.connected);
+  }
+
+  liarVote(player, targetId) {
+    this.requirePhase("game");
+    this.requireMode("klamca");
+    const liar = this.liar;
+    if (!liar || liar.stage !== "vote") fail("Teraz nie ma głosowania");
+    if (player.id === liar.masterId) fail("Prowadzący nie głosuje");
+    const target = this.requireTarget(targetId);
+    if (target === player) fail("Nie możesz głosować na siebie");
+    if (target.id === liar.masterId) fail("Prowadzący nie jest podejrzanym");
+    liar.votes.set(player.id, target.id);
+    this.evaluateLiarVote();
+    this.changed();
+  }
+
+  evaluateLiarVote() {
+    const liar = this.liar;
+    if (!liar || this.phase !== "game" || this.mode !== "klamca" || liar.stage !== "vote") return;
+    const voters = this.liarVoters();
+    if (voters.length && voters.every((p) => liar.votes.has(p.id))) this.resolveLiarVote();
+  }
+
+  tallyLiarVotes() {
+    const counts = new Map();
+    for (const [voterId, targetId] of this.liar.votes) {
+      if (!this.getPlayer(voterId) || !this.getPlayer(targetId)) continue;
+      counts.set(targetId, (counts.get(targetId) || 0) + 1);
+    }
+    return counts;
+  }
+
+  resolveLiarVote() {
+    const liar = this.liar;
+    if (!liar || liar.stage !== "vote") return;
+    const counts = this.tallyLiarVotes();
+    const best = Math.max(0, ...counts.values());
+    const leaders = [...counts.entries()].filter(([, count]) => count === best).map(([id]) => id);
+    liar.caught = best > 0 && leaders.length === 1 && leaders[0] === liar.impostorId;
+    const impostor = this.getPlayer(liar.impostorId);
+    if (liar.caught && impostor && impostor.connected) {
+      liar.stage = "guess";
+      this.activeId = impostor.id;
+      this.fx("liarCaught", { playerId: impostor.id });
+      this.announce(`🎯 Złapany! ${impostor.nick} był(a) kłamcą. Ostatnia szansa: zgadnij hasło!`);
+      this.liarSchedule(LIAR_GUESS_MS, () => this.finishLiarRound());
+      return;
+    }
+    this.finishLiarRound();
+  }
+
+  liarGuess(player, rawText) {
+    this.requirePhase("game");
+    this.requireMode("klamca");
+    const liar = this.liar;
+    if (!liar || liar.stage !== "guess") fail("To teraz niedostępne");
+    if (liar.impostorId !== player.id) fail("Zgaduje tylko kłamca");
+    const text = cleanText(rawText, LIAR_MAX_WORD);
+    if (!text) fail("Wpisz hasło");
+    liar.guess = text;
+    liar.guessCorrect = guessMatches(text, liar.word);
+    this.finishLiarRound();
+    this.changed();
+  }
+
+  finishLiarRound() {
+    const liar = this.liar;
+    if (!liar || liar.stage === "reveal") return;
+    const points = new Map();
+    const add = (id, value) => points.set(id, (points.get(id) || 0) + value);
+    const participants = this.liarParticipants();
+    if (!liar.escaped) {
+      const cfg = this.settings;
+      if (!liar.caught) add(liar.impostorId, cfg.liarSurvive);
+      else if (liar.guessCorrect) add(liar.impostorId, cfg.liarSaved);
+      else for (const p of participants) if (p.id !== liar.impostorId) add(p.id, cfg.liarCaughtCrew);
+      for (const [voterId, targetId] of liar.votes) if (targetId === liar.impostorId && voterId !== liar.impostorId) add(voterId, cfg.liarVoteBonus);
+    }
+    for (const [id, value] of points) {
+      const player = this.getPlayer(id);
+      if (player) player.score += value;
+    }
+    const impostor = this.getPlayer(liar.impostorId);
+    liar.results = participants.map((p) => ({
+      id: p.id,
+      nick: p.nick,
+      color: p.color,
+      points: points.get(p.id) || 0,
+      votedFor: liar.votes.get(p.id) || null,
+      impostor: p.id === liar.impostorId
+    })).sort((a, b) => b.points - a.points);
+    liar.stage = "reveal";
+    this.activeId = null;
+    const counts = this.tallyLiarVotes();
+    this.liarHistory.push({
+      round: liar.round,
+      word: liar.word,
+      hint: liar.hint,
+      hintGiven: liar.hintGiven,
+      impostorId: liar.impostorId,
+      impostorNick: impostor ? impostor.nick : "?",
+      caught: liar.caught,
+      escaped: liar.escaped,
+      guess: liar.guess,
+      guessCorrect: liar.guessCorrect,
+      votes: [...liar.votes.entries()],
+      counts: [...counts.entries()],
+      clues: liar.clues.map((clue) => ({ ...clue, nick: (this.getPlayer(clue.playerId) || { nick: "?" }).nick }))
+    });
+    this.fx("liarReveal", { caught: liar.caught, guessed: liar.guessCorrect, escaped: liar.escaped });
+    let text;
+    if (liar.escaped) text = "Kłamca uciekł z gry!";
+    else if (!liar.caught) text = `😈 Kłamca ${impostor ? impostor.nick : "?"} wygrywa! Hasło: ${liar.word}`;
+    else if (liar.guessCorrect) text = `😏 ${impostor ? impostor.nick : "?"} zgadł(a) hasło „${liar.word}” i ratuje się!`;
+    else text = `🎉 Kłamca złapany! Hasło: ${liar.word}`;
+    this.announce(text);
+    this.liarSchedule(LIAR_REVEAL_MS, () => this.liarContinue(null, true));
+  }
+
+  liarContinue(player, force) {
+    this.requirePhase("game");
+    this.requireMode("klamca");
+    const liar = this.liar;
+    if (!force) {
+      if (!liar || liar.stage !== "reveal") fail("To teraz niedostępne");
+      if (!this.canManage(player) && liar.masterId !== player.id) fail("Dalej może kliknąć host");
+    }
+    if (this.players.some((p) => this.reachedLimit(p))) return this.finish("limit");
+    this.startLiarRound();
+  }
+
+  liarForceNext() {
+    const liar = this.liar;
+    if (!liar) return this.startLiarRound();
+    clearTimeout(liar.timer);
+    if (liar.stage === "setup") fail("Prowadzący musi najpierw wpisać hasło");
+    if (liar.stage === "clues") {
+      liar.clues.push({ playerId: this.liarSpeakerId(), text: "—", lap: Math.floor(liar.turn / liar.order.length) + 1, skipped: true });
+      liar.turn += 1;
+      this.announce("Host pomija gracza");
+      return this.startClueTurn();
+    }
+    if (liar.stage === "discuss") return this.startLiarVote();
+    if (liar.stage === "vote") return this.resolveLiarVote();
+    if (liar.stage === "guess") return this.finishLiarRound();
+    return this.liarContinue(null, true);
+  }
+
+  liarAfterRemoval(player) {
+    const liar = this.liar;
+    if (!liar) return;
+    liar.votes.delete(player.id);
+    for (const [voterId, targetId] of [...liar.votes]) if (targetId === player.id) liar.votes.delete(voterId);
+    if (this.liarParticipants().filter((p) => p.connected).length < LIAR_MIN_PLAYERS && liar.stage !== "reveal") {
+      return this.finish("players");
+    }
+    if (liar.stage === "setup" && liar.masterId === player.id) return this.startLiarRound();
+    if (liar.impostorId === player.id && liar.stage !== "reveal") {
+      liar.escaped = true;
+      return this.finishLiarRound();
+    }
+    if (liar.stage === "clues" && this.liarSpeakerId() === player.id) {
+      liar.turn += 1;
+      return this.startClueTurn();
+    }
+    if (liar.stage === "vote") this.evaluateLiarVote();
+  }
+
+  liarView(viewer) {
+    const liar = this.liar;
+    if (this.mode !== "klamca" || !liar) return null;
+    const isMaster = viewer.id === liar.masterId;
+    const isImpostor = viewer.id === liar.impostorId;
+    const revealed = liar.stage === "reveal";
+    const started = liar.stage !== "setup";
+    return {
+      round: liar.round,
+      stage: liar.stage,
+      masterId: liar.masterId,
+      speakerId: this.liarSpeakerId(),
+      role: isMaster ? "master" : !started ? null : isImpostor ? "impostor" : "crew",
+      word: started && (!isImpostor || revealed) ? liar.word : null,
+      hint: isMaster || revealed || (isImpostor && liar.hintGiven) ? liar.hint : null,
+      hintGiven: isMaster || revealed || isImpostor ? liar.hintGiven : null,
+      impostorId: isMaster || revealed || isImpostor ? liar.impostorId : null,
+      authorId: revealed ? liar.authorId : null,
+      order: liar.order,
+      lap: liar.order.length ? Math.min(this.settings.liarLaps, Math.floor(liar.turn / liar.order.length) + 1) : 1,
+      laps: this.settings.liarLaps,
+      clues: liar.clues,
+      voted: [...liar.votes.keys()],
+      voters: this.liarVoters().length,
+      myVote: liar.votes.get(viewer.id) || null,
+      votes: revealed ? [...liar.votes.entries()] : null,
+      caught: revealed || liar.stage === "guess" ? liar.caught : null,
+      guess: revealed ? liar.guess : null,
+      guessCorrect: revealed ? liar.guessCorrect : null,
+      escaped: revealed ? liar.escaped : null,
+      results: revealed ? liar.results : null,
+      remainingMs: liar.endsAt ? Math.max(0, liar.endsAt - Date.now()) : null,
+      totalMs: liar.totalMs
+    };
+  }
+
+  liarSummary() {
+    const awards = [];
+    const survived = new Map();
+    const detectives = new Map();
+    const suspects = new Map();
+    const nickOf = (id) => (this.getPlayer(id) || { nick: "?" }).nick;
+    for (const round of this.liarHistory) {
+      if (round.escaped) continue;
+      if (!round.caught || round.guessCorrect) survived.set(round.impostorNick, (survived.get(round.impostorNick) || 0) + 1);
+      for (const [voterId, targetId] of round.votes) {
+        if (targetId === round.impostorId) detectives.set(nickOf(voterId), (detectives.get(nickOf(voterId)) || 0) + 1);
+      }
+      for (const [targetId, count] of round.counts) {
+        if (targetId !== round.impostorId) suspects.set(nickOf(targetId), (suspects.get(nickOf(targetId)) || 0) + count);
+      }
+    }
+    const top = (map) => [...map.entries()].sort((a, b) => b[1] - a[1])[0];
+    const liarKing = top(survived);
+    if (liarKing) awards.push({ icon: "😈", title: "Mistrz kłamstwa", text: `${liarKing[0]}: ${liarKing[1]}× wywinął(a) się jako kłamca` });
+    const detective = top(detectives);
+    if (detective) awards.push({ icon: "🔍", title: "Detektyw", text: `${detective[0]}: ${detective[1]}× wskazał(a) kłamcę` });
+    const suspect = top(suspects);
+    if (suspect) awards.push({ icon: "😬", title: "Podejrzany z urzędu", text: `${suspect[0]}: ${suspect[1]} głosów, choć był(a) niewinny(a)` });
+    return {
+      mode: "klamca",
+      awards,
+      history: [],
+      liarRounds: this.liarHistory.map((round) => ({
+        round: round.round,
+        word: round.word,
+        hint: round.hint,
+        hintGiven: round.hintGiven,
+        impostorNick: round.impostorNick,
+        caught: round.caught,
+        escaped: round.escaped,
+        guess: round.guess,
+        guessCorrect: round.guessCorrect,
+        clues: round.clues.filter((clue) => !clue.skipped).map((clue) => ({ nick: clue.nick, text: clue.text }))
       })),
       totalGuessed: 0
     };
@@ -1307,8 +1914,17 @@ class Room {
     return !message.toId || message.fromId === viewer.id || message.toId === viewer.id;
   }
 
+  chatSecretFor(viewer) {
+    if (this.phase !== "game") return null;
+    if (this.mode === "klamca") {
+      const liar = this.liar;
+      return liar && liar.word && liar.impostorId === viewer.id && liar.stage !== "reveal" ? liar.word : null;
+    }
+    return viewer.word ? viewer.word.text : null;
+  }
+
   chatViewFor(viewer, message) {
-    const secret = this.phase === "game" && viewer.word ? viewer.word.text : null;
+    const secret = this.chatSecretFor(viewer);
     return { ...message, text: message.fromId === viewer.id ? message.text : maskSecret(message.text, secret) };
   }
 
@@ -1336,7 +1952,11 @@ class Room {
       code: this.code,
       phase: this.phase,
       mode: this.mode,
+      settings: this.settings,
       wave: this.waveView(viewer),
+      liar: this.liarView(viewer),
+      liarSource: this.liarSource,
+      liarHintChance: this.liarHintChance,
       pointLimit: this.pointLimit,
       helpLimit: this.helpLimit,
       timeLimitMin: this.timeLimitMin,
@@ -1347,8 +1967,12 @@ class Room {
       activeId: this.activeId,
       turnRemainingMs: this.mode === "wskazowka"
         ? (this.wave && this.phase === "game" ? Math.max(0, this.wave.endsAt - Date.now()) : null)
-        : this.turnEndsAt ? Math.max(0, this.turnEndsAt - Date.now()) : null,
-      turnTotalMs: this.mode === "wskazowka" && this.wave ? this.wave.totalMs : TURN_TIME_MS,
+        : this.mode === "klamca"
+          ? (this.liar && this.phase === "game" && this.liar.endsAt ? Math.max(0, this.liar.endsAt - Date.now()) : null)
+          : this.turnEndsAt ? Math.max(0, this.turnEndsAt - Date.now()) : null,
+      turnTotalMs: this.mode === "wskazowka" && this.wave
+        ? this.wave.totalMs
+        : this.mode === "klamca" && this.liar ? this.liar.totalMs || this.settings.turnSeconds * 1000 : this.settings.turnSeconds * 1000,
       endReason: this.endReason,
       roomRemainingMs: this.phase === "lobby" ? Math.max(0, this.expiresAt - Date.now()) : null,
       poolSize: this.pool.length,
@@ -1359,6 +1983,8 @@ class Room {
         words: viewer.words,
         starred: viewer.starred || [],
         wordsReady: viewer.wordsReady,
+        liarWords: viewer.liarWords,
+        liarReady: viewer.liarReady,
         cameraCode: viewer.cameraCode
       },
       players: this.players.map((p) => ({
@@ -1368,6 +1994,7 @@ class Room {
         connected: p.connected,
         score: p.score,
         wordsReady: p.wordsReady,
+        liarReady: p.liarReady,
         canManage: this.canManage(p),
         hasPhone: p.phoneCount > 0,
         helpsLeft: Math.max(0, this.helpLimit - p.helpsUsed),
@@ -1475,6 +2102,7 @@ class Registry extends EventEmitter {
     room.clearVote();
     room.clearHelp();
     room.clearWave();
+    room.clearLiar();
     room.stopTurnTimer();
     room.stopGameTimer();
     this.rooms.delete(room.code);

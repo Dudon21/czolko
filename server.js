@@ -7,6 +7,7 @@ const QRCode = require("qrcode");
 const { AccessToken, RoomServiceClient } = require("livekit-server-sdk");
 const { Registry, GameError, fail } = require("./game");
 const { randomWords } = require("./words");
+const { SETTINGS } = require("./settings");
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
@@ -29,7 +30,7 @@ app.use(express.static(path.join(__dirname, "public")));
 app.get("/vendor/livekit-client.js", (req, res) => {
   res.sendFile(path.join(__dirname, "node_modules", "livekit-client", "dist", "livekit-client.umd.js"));
 });
-app.get("/config.json", (req, res) => res.json({ video: VIDEO_ENABLED }));
+app.get("/config.json", (req, res) => res.json({ video: VIDEO_ENABLED, settings: SETTINGS }));
 app.get("/qr.svg", (req, res) => {
   const text = String(req.query.text || "");
   if (!text || text.length > 300) return res.status(400).end();
@@ -344,6 +345,57 @@ io.on("connection", (socket) => {
   handle(socket, "wave:continue", () => {
     const { room, player } = currentSession(socket);
     room.waveContinue(player, false);
+    room.changed();
+  });
+
+  handle(socket, "setSetting", ({ key, value }) => {
+    const { room, player } = currentSession(socket);
+    room.setSetting(player, key, value);
+  });
+
+  handle(socket, "resetSettings", ({ mode }) => {
+    const { room, player } = currentSession(socket);
+    room.resetSettings(player, mode);
+  });
+
+  handle(socket, "setLiarSettings", ({ source, hintChance }) => {
+    const { room, player } = currentSession(socket);
+    room.setLiarSettings(player, { source, hintChance });
+  });
+
+  handle(socket, "setLiarWords", ({ entries }) => {
+    const { room, player } = currentSession(socket);
+    room.setLiarWords(player, entries);
+  });
+
+  handle(socket, "liar:setup", ({ word, hint }) => {
+    const { room, player } = currentSession(socket);
+    room.liarSetup(player, word, hint);
+  });
+
+  handle(socket, "liar:clue", ({ text }) => {
+    const { room, player } = currentSession(socket);
+    room.liarClue(player, text);
+  });
+
+  handle(socket, "liar:skip", () => {
+    const { room, player } = currentSession(socket);
+    room.liarSkipDiscussion(player);
+  });
+
+  handle(socket, "liar:vote", ({ playerId }) => {
+    const { room, player } = currentSession(socket);
+    room.liarVote(player, playerId);
+  });
+
+  handle(socket, "liar:guess", ({ text }) => {
+    const { room, player } = currentSession(socket);
+    room.liarGuess(player, text);
+  });
+
+  handle(socket, "liar:continue", () => {
+    const { room, player } = currentSession(socket);
+    room.liarContinue(player, false);
     room.changed();
   });
 

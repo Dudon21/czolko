@@ -85,8 +85,26 @@
             <div class="row mode-buttons">
               <button class="btn mode-btn" data-mode="czolko">🙈 Czółko</button>
               <button class="btn mode-btn" data-mode="wskazowka">🔮 Wskazówka</button>
+              <button class="btn mode-btn" data-mode="klamca">🕵️ Kłamca</button>
             </div>
             <p id="mode-desc" class="status mode-desc"></p>
+            <div class="liar-only liar-settings">
+              <span class="mode-label">Hasła</span>
+              <div class="row mode-buttons">
+                <button class="btn liar-source-btn" data-source="players">✍️ Każdy wpisuje 5</button>
+                <button class="btn liar-source-btn" data-source="host">🎬 Wpisuje host</button>
+              </div>
+              <label class="field field-inline">
+                <span>Szansa, że kłamca dostanie podpowiedź</span>
+                <select id="liar-hint-chance">
+                  <option value="0">0%</option>
+                  <option value="25">25%</option>
+                  <option value="50">50%</option>
+                  <option value="75">75%</option>
+                  <option value="100">100%</option>
+                </select>
+              </label>
+            </div>
           </div>
           <div class="row">
             <label class="field field-inline">
@@ -114,6 +132,11 @@
             <span>Klawisz „Next”:</span>
             <button class="btn btn-small btn-next-key" title="Kliknij i naciśnij nowy klawisz"></button>
           </div>
+          <details id="advanced-settings" class="advanced-settings">
+            <summary>⚙️ Zaawansowane: punkty i czasy</summary>
+            <div id="advanced-fields" class="advanced-fields"></div>
+            <button id="btn-reset-settings" class="btn btn-small">↺ Przywróć domyślne</button>
+          </details>
         </div>
       </div>
 
@@ -155,6 +178,16 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <div id="liar-words-card" class="card liar-only hidden">
+        <h2>Twoje hasła do Kłamcy</h2>
+        <p class="status">Wpisz 5 haseł i do każdego podpowiedź dla kłamcy. Twoje hasło nigdy nie trafi do ciebie jako kłamcy.</p>
+        <div id="liar-word-inputs" class="liar-word-inputs"></div>
+        <div class="row">
+          <button id="btn-save-liar-words" class="btn btn-primary">Zapisz hasła</button>
+        </div>
+        <p id="liar-words-status" class="status"></p>
       </div>
 
       <div id="words-card" class="card czolko-only">
@@ -209,6 +242,51 @@
           <span id="help-text"></span>
           <span class="help-timer"></span>
           <button id="btn-help-end" class="btn btn-small btn-red">Zakończ pomoc</button>
+        </div>
+        <div id="liar-stage" class="liar-stage hidden">
+          <div id="liar-role" class="liar-role"></div>
+          <div id="liar-panel" class="bottom-panel liar-panel">
+            <div id="liar-setup" class="liar-box hidden">
+              <p class="panel-status">Prowadzisz rundę. Wpisz hasło i podpowiedź dla kłamcy (może jej nie dostać)</p>
+              <div class="row row-center liar-inputs">
+                <input id="liar-setup-word" maxlength="40" autocomplete="off" placeholder="hasło, np. pizza">
+                <input id="liar-setup-hint" maxlength="40" autocomplete="off" placeholder="podpowiedź, np. jedzenie">
+              </div>
+              <button id="liar-setup-submit" class="btn btn-green btn-big">▶ Start rundy</button>
+            </div>
+            <div id="liar-clue-form" class="liar-box hidden">
+              <p class="panel-status">Twoja kolej! Powiedz jedno słowo na kamerce i wpisz je tutaj</p>
+              <div class="row row-center">
+                <input id="liar-clue-input" maxlength="30" autocomplete="off" placeholder="jedno słowo skojarzenia">
+                <button id="liar-clue-submit" class="btn btn-green btn-big">Powiedz</button>
+              </div>
+            </div>
+            <div id="liar-discuss" class="liar-box hidden">
+              <p class="liar-big">🗣️ Dyskusja! Kto kłamie?</p>
+              <button id="liar-skip" class="btn btn-primary">Do głosowania ▶</button>
+            </div>
+            <div id="liar-vote" class="liar-box hidden">
+              <p id="liar-vote-status" class="panel-status"></p>
+              <div id="liar-vote-buttons" class="liar-vote-buttons"></div>
+            </div>
+            <div id="liar-guess" class="liar-box hidden">
+              <p class="liar-big">😬 Złapali cię! Zgadnij hasło, żeby się uratować</p>
+              <div class="row row-center">
+                <input id="liar-guess-input" maxlength="40" autocomplete="off" placeholder="hasło to…">
+                <button id="liar-guess-submit" class="btn btn-green btn-big">Zgaduję</button>
+              </div>
+            </div>
+            <div id="liar-reveal" class="liar-box hidden">
+              <p id="liar-reveal-title" class="liar-big"></p>
+              <p id="liar-reveal-details" class="panel-status"></p>
+              <div id="liar-results" class="wave-results"></div>
+              <div class="row row-center">
+                <button id="liar-continue" class="btn btn-big btn-primary">Dalej ▶</button>
+                <span class="panel-status">automatycznie za <span class="turn-timer"></span></span>
+              </div>
+            </div>
+            <p id="liar-wait" class="panel-status liar-wait hidden"></p>
+          </div>
         </div>
         <div id="wave-stage" class="wave-stage hidden">
           <div id="wave-info" class="wave-info"></div>
@@ -367,7 +445,7 @@
 
   <div id="help-picker" class="modal hidden">
     <div class="card modal-box">
-      <p>Kogo prosisz o pomoc? Macie 60 sekund rozmowy.</p>
+      <p id="help-picker-text">Kogo prosisz o pomoc?</p>
       <div id="help-choices" class="help-choices"></div>
       <button id="help-cancel" class="btn">Anuluj</button>
     </div>

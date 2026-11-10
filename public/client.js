@@ -622,6 +622,33 @@ const fx = {
       case "refill":
         sfx.play("refill");
         break;
+      case "liarDiscuss":
+        sfx.play("ready");
+        break;
+      case "liarVote":
+        sfx.play("help");
+        break;
+      case "liarCaught":
+        sfx.play("voteStart");
+        this.stamp(event.playerId, "KŁAMCA!", "stamp-fail");
+        break;
+      case "liarReveal":
+        sfx.play("voteStart");
+        setTimeout(() => {
+          if (event.escaped) return;
+          if (!event.caught) {
+            sfx.play("pass", 0);
+            this.overlay([el("div", "fx-big liar-fx-impostor", "😈 KŁAMCA WYGRYWA")], "fx-win liar-fx", 2000);
+          } else if (event.guessed) {
+            sfx.play("author", 0);
+            this.overlay([el("div", "fx-big", "😏 URATOWANY!")], "fx-win", 2000);
+          } else {
+            sfx.play("guessed", 0);
+            this.overlay([el("div", "fx-big", "🎉 ZŁAPANY!")], "fx-win", 2000);
+            this.rain(60);
+          }
+        }, 1100);
+        break;
       case "waveScale":
         sfx.play("ready");
         break;
@@ -637,7 +664,10 @@ const fx = {
         this.busyUntil = performance.now() + 2600;
         setTimeout(() => {
           sfx.play(event.bullseye ? "guessed" : "ready", 0);
-          if (event.bullseye) {
+          if (event.perfect) {
+            this.overlay([el("div", "fx-big", "💯 PERFEKCYJNIE!"), el("div", "fx-sub", "idealnie co do wartości")], "fx-win", 2300);
+            this.rain(110);
+          } else if (event.bullseye) {
             this.overlay([el("div", "fx-big", "🎯 W SAM ŚRODEK!")], "fx-win", 1900);
             this.rain(50);
           }
@@ -653,6 +683,15 @@ const fx = {
     }
   }
 };
+
+function cfg(key, fallback) {
+  const settings = store.state && store.state.settings;
+  return settings && typeof settings[key] === "number" ? settings[key] : fallback;
+}
+
+function waveBands() {
+  return [[18, cfg("waveFar", 2)], [11, cfg("waveNear", 3)], [4, cfg("waveBull", 4)]];
+}
 
 function findPlayer(id) {
   return store.state ? store.state.players.find((p) => p.id === id) : null;
@@ -879,6 +918,8 @@ fetch("/config.json")
   .then((res) => res.json())
   .then((config) => {
     video.available = Boolean(config.video && video.lib);
+    store.settingsSpec = Array.isArray(config.settings) ? config.settings : [];
+    if (store.state) render();
     renderCameraButtons();
     if (store.state) video.sync(store.state);
   })
@@ -1341,7 +1382,9 @@ function renderLobby(s) {
     info.appendChild(el("div", "lp-nick", p.nick + (p.id === s.me.id ? " (ty)" : "")));
     const tags = el("div", "tags");
     if (p.canManage) tags.appendChild(el("span", "tag tag-host", "Host"));
-    if (s.mode !== "wskazowka") tags.appendChild(el("span", `tag ${p.wordsReady ? "tag-ok" : ""}`, p.wordsReady ? "✓ hasła" : "pisze hasła…"));
+    const readyFlag = s.mode === "klamca" ? p.liarReady : p.wordsReady;
+    const showWordsTag = s.mode === "czolko" || (s.mode === "klamca" && s.liarSource === "players");
+    if (showWordsTag) tags.appendChild(el("span", `tag ${readyFlag ? "tag-ok" : ""}`, readyFlag ? "✓ hasła" : "pisze hasła…"));
     if (p.hasPhone) tags.appendChild(el("span", "tag tag-ok", "📱 kamerka"));
     if (!p.connected) tags.appendChild(el("span", "tag tag-off", "offline"));
     info.appendChild(tags);
@@ -1367,12 +1410,17 @@ function renderLobby(s) {
   timeInput.disabled = !s.me.canManage;
   show($("btn-set-time-limit"), s.me.canManage);
 
-  const missing = s.mode === "wskazowka" ? [] : s.players.filter((p) => !p.wordsReady).map((p) => p.nick);
+  const liarPlayersMode = s.mode === "klamca" && s.liarSource === "players";
+  const missing = s.mode === "wskazowka" || (s.mode === "klamca" && !liarPlayersMode)
+    ? []
+    : s.players.filter((p) => !(liarPlayersMode ? p.liarReady : p.wordsReady)).map((p) => p.nick);
   const host = s.players.find((p) => p.canManage);
   renderModePicker(s);
-  const allReady = s.players.length >= 2 && missing.length === 0;
+  liarWordsForm.sync(s);
+  const minPlayers = s.mode === "klamca" ? (s.liarSource === "host" ? 4 : 3) : 2;
+  const allReady = s.players.length >= minPlayers && missing.length === 0;
   let hint = "";
-  if (s.players.length < 2) hint = "Czekamy na co najmniej 2 graczy";
+  if (s.players.length < minPlayers) hint = `Czekamy na co najmniej ${minPlayers} graczy`;
   else if (missing.length) hint = `Brakuje haseł od: ${missing.join(", ")}`;
   else hint = "Wszyscy gotowi!";
   $("start-hint").textContent = hint;
@@ -1447,6 +1495,22 @@ function updateTile(tile, p, s, leaders) {
   if (!p.authorNick) tile.author.dataset.nick = "";
   tile.nick.textContent = p.connected ? p.nick : `${p.nick} (offline)`;
   tile.root.classList.toggle("me", p.id === s.me.id);
+  if (s.mode === "klamca") {
+    tile.word.dataset.word = "";
+    const label = liarTileLabel(s, p);
+    if (tile.word.textContent !== label) {
+      tile.word.textContent = label;
+      if (label.startsWith("+") || label.startsWith("🕵️")) motion.restart(tile.word, "word-new");
+    }
+    const liar = s.liar;
+    const isMaster = liar && liar.masterId === p.id;
+    show(tile.badge, s.activeId === p.id || isMaster);
+    tile.badge.textContent = isMaster ? "Prowadzi" : liar && liar.stage === "guess" ? "Zgaduje" : "Mówi";
+    tile.root.classList.toggle("liar-suspect", Boolean(liar && liar.stage === "reveal" && liar.impostorId === p.id));
+    bindSlot(tile.slot, p);
+    return;
+  }
+  tile.root.classList.remove("liar-suspect");
   if (s.mode === "wskazowka") {
     tile.word.dataset.word = "";
     const label = waveTileLabel(s, p);
@@ -1617,6 +1681,7 @@ function renderGrid(s, leaders) {
     others.sort((a, b) => rank(a) - rank(b));
   }
   const spotlight = !helpMode && s.mode !== "wskazowka" && others.some((p) => p.id === s.activeId);
+  grid.classList.toggle("liar-mode", s.mode === "klamca");
   grid.classList.toggle("wave-mode", s.mode === "wskazowka");
   grid.classList.toggle("spotlight", spotlight);
   grid.classList.toggle("help-mode", helpMode);
@@ -1663,10 +1728,12 @@ function renderMyTile(s, leaders) {
   const myAuthor = root.querySelector(".my-author");
   show(myAuthor, Boolean(me.authorNick));
   myAuthor.textContent = me.authorNick ? "✍️ hasło od " + me.authorNick : "";
-  show(root.querySelector(".my-turn-badge"), s.activeId === me.id);
+  show(root.querySelector(".my-turn-badge"), s.activeId === me.id || Boolean(s.mode === "klamca" && s.liar && s.liar.masterId === me.id));
   root.querySelector(".my-turn-badge").textContent = s.mode === "wskazowka"
     ? (s.wave && s.wave.stage === "scale" ? "Skala" : "Podpowiadasz")
-    : "Czółko";
+    : s.mode === "klamca"
+      ? (s.liar && s.liar.masterId === me.id ? "Prowadzisz" : s.liar && s.liar.stage === "guess" ? "Zgadujesz" : "Mówisz")
+      : "Czółko";
 }
 
 function renderTurn(s) {
@@ -1687,7 +1754,8 @@ function renderTurn(s) {
   $("btn-help").textContent = "🆘 Pomoc (" + helpsLeft + ")";
   $("btn-help").disabled = Boolean(s.vote) || Boolean(s.help) || helpsLeft <= 0;
   $("btn-author").disabled = Boolean(s.vote) || Boolean(me && me.authorNick);
-  $("btn-author").textContent = me && me.authorNick ? "🕵️ od " + me.authorNick : "🕵️ Autor (−0,5)";
+  $("btn-author").textContent = me && me.authorNick ? "🕵️ od " + me.authorNick : "🕵️ Autor (−" + fmtScore(cfg("authorCost", 0.5)) + ")";
+  $("btn-help").textContent = "🆘 Pomoc (" + helpsLeft + ")" + (cfg("helpCost", 0) ? " −" + fmtScore(cfg("helpCost", 0)) : "");
   if (!myTurn || s.help || s.vote) show($("help-picker"), false);
   $("action-status").replaceChildren();
   if (myTurn && s.vote) {
@@ -1715,7 +1783,7 @@ function updateGameClock() {
   $("game-clock").classList.toggle("low", Boolean(store.gameDeadline) && seconds <= 60);
 }
 
-$("btn-author").onclick = () => ask("Odkryć, kto wpisał twoje hasło? Kosztuje 0,5 punktu.", () => act("revealAuthor"));
+$("btn-author").onclick = () => ask("Odkryć, kto wpisał twoje hasło? Kosztuje " + fmtScore(cfg("authorCost", 0.5)) + " pkt.", () => act("revealAuthor"));
 
 function renderHelp(s) {
   const help = s.help;
@@ -1741,6 +1809,8 @@ function updateHelpTimers() {
 function openHelpPicker() {
   const s = store.state;
   if (!s) return;
+  const helpCost = cfg("helpCost", 0);
+  $("help-picker-text").textContent = "Kogo prosisz o pomoc? Macie " + cfg("helpSeconds", 60) + " sekund rozmowy." + (helpCost ? " Kosztuje " + fmtScore(helpCost) + " pkt." : "");
   const list = $("help-choices");
   list.replaceChildren();
   for (const p of s.players) {
@@ -1847,6 +1917,7 @@ function renderGame(s) {
   renderGameClock(s);
   renderVote(s);
   renderWave(s);
+  renderLiar(s);
   motion.scoreChanges(s);
 }
 
@@ -1919,7 +1990,10 @@ for (const button of document.querySelectorAll(".btn-next-key")) {
 document.addEventListener("keydown", (event) => nextKey.onKey(event), true);
 nextKey.render();
 $("btn-guess").onclick = () => act("guess");
-$("btn-pass").onclick = () => ask("Spasować? Stracisz 1 punkt.", () => act("pass"));
+$("btn-pass").onclick = () => {
+  const penalty = cfg("passPenalty", 1);
+  ask(penalty ? "Spasować? Stracisz " + fmtScore(penalty) + " pkt." : "Spasować?", () => act("pass"));
+};
 $("btn-vote-yes").onclick = () => act("vote", { approve: true });
 $("btn-vote-no").onclick = () => act("vote", { approve: false });
 
@@ -1988,9 +2062,13 @@ function renderEnd(s) {
   show($("awards-box"), summary.awards.length > 0);
   const history = $("history");
   history.replaceChildren();
-  $("history-title").textContent = summary.rounds ? "Rundy" : "Kto miał jakie hasła";
+  $("history-title").textContent = summary.rounds || summary.liarRounds ? "Rundy" : "Kto miał jakie hasła";
   if (summary.rounds) {
     renderWaveRounds(summary.rounds);
+    return;
+  }
+  if (summary.liarRounds) {
+    renderLiarRounds(summary.liarRounds);
     return;
   }
   const outcomes = {
@@ -2070,7 +2148,7 @@ function renderAdminPanel(s) {
   for (const button of document.querySelectorAll("[data-admin=approve], [data-admin=reject]")) button.disabled = !s.vote;
   for (const button of document.querySelectorAll("[data-admin=forceNext]")) {
     button.disabled = s.phase !== "game";
-    button.textContent = s.mode === "wskazowka" ? "Następna runda" : "Wymuś Next";
+    button.textContent = s.mode === "wskazowka" ? "Następna runda" : s.mode === "klamca" ? "Dalej / pomiń" : "Wymuś Next";
   }
 
   const list = $("admin-players");
@@ -2141,7 +2219,6 @@ $("admin-panel").addEventListener("click", (event) => {
 const WAVE_CENTER_X = 200;
 const WAVE_CENTER_Y = 210;
 const WAVE_RADIUS = 190;
-const WAVE_BANDS = [[18, 2], [11, 3], [4, 4]];
 const WAVE_MOVE_THROTTLE_MS = 100;
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -2197,7 +2274,7 @@ function waveTileLabel(s, p) {
   }
   const result = (wave.results || []).find((r) => r.id === p.id);
   if (!result) return "—";
-  return "+" + result.points + (result.points === 4 ? " 🎯" : "");
+  return "+" + result.points + (result.perfect ? " 💯" : result.bull ? " 🎯" : "");
 }
 
 function drawNeedle(group, value, color, label, mine) {
@@ -2218,7 +2295,7 @@ function drawDial(s) {
   const svg = $("wave-dial");
   const isPsychic = wave.psychicId === s.me.id;
   const showTarget = wave.target !== null && wave.stage !== "scale";
-  const key = [wave.round, wave.set, wave.stage, showTarget ? wave.target : "-", isPsychic].join("|");
+  const key = [wave.round, wave.set, wave.stage, showTarget ? wave.target : "-", isPsychic, cfg("wavePerfect", 5), cfg("waveBull", 4), cfg("waveNear", 3), cfg("waveFar", 2)].join("|");
   if (waveUi.dialKey !== key) {
     waveUi.dialKey = key;
     svg.replaceChildren();
@@ -2235,10 +2312,15 @@ function drawDial(s) {
     }
     const targetGroup = svgEl("g", {}, "wave-target");
     if (showTarget) {
-      for (const [width, points] of WAVE_BANDS) {
-        targetGroup.appendChild(svgEl("path", { d: wedgePath(wave.target - width, wave.target + width, WAVE_RADIUS - 2) }, "wave-band wave-band-" + points));
-      }
-      for (const [from, to, points] of [[-18, -11, 2], [-11, -4, 3], [-4, 4, 4], [4, 11, 3], [11, 18, 2]]) {
+      waveBands().forEach(([width], index) => {
+        targetGroup.appendChild(svgEl("path", { d: wedgePath(wave.target - width, wave.target + width, WAVE_RADIUS - 2) }, "wave-band wave-band-" + (index + 2)));
+      });
+      const [px, py] = wavePoint(wave.target, WAVE_RADIUS - 2);
+      targetGroup.appendChild(svgEl("line", { x1: WAVE_CENTER_X, y1: WAVE_CENTER_Y, x2: px.toFixed(2), y2: py.toFixed(2) }, "wave-perfect-line"));
+      const far = cfg("waveFar", 2);
+      const near = cfg("waveNear", 3);
+      const bull = cfg("waveBull", 4);
+      for (const [from, to, points] of [[-18, -11, far], [-11, -4, near], [-4, 4, bull], [4, 11, near], [11, 18, far]]) {
         const start = Math.max(0, wave.target + from);
         const end = Math.min(100, wave.target + to);
         if (end - start < 2.5) continue;
@@ -2415,7 +2497,7 @@ function renderWavePanel(s) {
     const list = $("wave-results");
     list.replaceChildren();
     for (const r of wave.results || []) {
-      const row = el("div", "wave-result" + (r.points === 4 ? " bull" : ""));
+      const row = el("div", "wave-result" + (r.perfect ? " perfect" : r.bull ? " bull" : ""));
       row.style.setProperty("--pc", r.color);
       row.append(
         el("span", "wave-result-nick", r.nick),
@@ -2510,14 +2592,353 @@ $("wave-lock").onclick = () => {
 };
 $("wave-continue").onclick = () => act("wave:continue");
 
+const advancedUi = { signature: "" };
+
+function renderAdvancedSettings(s) {
+  const spec = (store.settingsSpec || []).filter((setting) => setting.mode === s.mode);
+  const box = $("advanced-fields");
+  const signature = s.mode + "|" + spec.length + "|" + s.me.canManage;
+  if (advancedUi.signature !== signature) {
+    advancedUi.signature = signature;
+    box.replaceChildren();
+    let group = null;
+    for (const setting of spec) {
+      if (setting.group !== group) {
+        group = setting.group;
+        box.appendChild(el("div", "advanced-group", group));
+      }
+      const row = el("label", "advanced-row");
+      const input = el("input", "advanced-input");
+      input.type = "number";
+      input.min = setting.min;
+      input.max = setting.max;
+      input.step = setting.step;
+      input.dataset.key = setting.key;
+      input.disabled = !s.me.canManage;
+      const commit = async () => {
+        const value = Number(input.value);
+        if (!Number.isFinite(value) || value === cfg(setting.key, setting.value)) return;
+        const response = await act("setSetting", { key: setting.key, value });
+        if (!response.ok) input.value = cfg(setting.key, setting.value);
+      };
+      input.addEventListener("change", commit);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") input.blur();
+      });
+      row.append(el("span", "advanced-label", setting.label), input);
+      box.appendChild(row);
+    }
+    show($("btn-reset-settings"), s.me.canManage);
+  }
+  for (const input of box.querySelectorAll(".advanced-input")) {
+    if (document.activeElement !== input) input.value = cfg(input.dataset.key, "");
+    const spec2 = (store.settingsSpec || []).find((setting) => setting.key === input.dataset.key);
+    input.classList.toggle("changed", Boolean(spec2 && cfg(spec2.key, spec2.value) !== spec2.value));
+  }
+}
+
+$("btn-reset-settings").onclick = () => {
+  const mode = store.state && store.state.mode;
+  ask("Przywrócić domyślne punkty i czasy dla tego trybu?", () => act("resetSettings", { mode }));
+};
+
 function renderModePicker(s) {
+  renderAdvancedSettings(s);
   for (const button of document.querySelectorAll(".mode-btn")) {
     button.classList.toggle("selected", button.dataset.mode === s.mode);
     button.disabled = !s.me.canManage;
   }
   $("mode-desc").textContent = s.mode === "wskazowka"
     ? "Ktoś wymyśla skalę (np. zły ↔ dobry kierowca), potem każdy po kolei podpowiada, a reszta ustawia wskazówkę na tarczy. Hasła nie są potrzebne."
-    : "Klasyczne Czółko: zgadujesz hasło, które widzą wszyscy oprócz ciebie.";
+    : s.mode === "klamca"
+      ? "Wszyscy znają hasło oprócz kłamcy (czasem dostaje podpowiedź). Po kolei mówicie po jednym słowie, potem dyskusja i głosowanie, kto kłamie."
+      : "Klasyczne Czółko: zgadujesz hasło, które widzą wszyscy oprócz ciebie.";
+  for (const button of document.querySelectorAll(".liar-source-btn")) {
+    button.classList.toggle("selected", button.dataset.source === s.liarSource);
+    button.disabled = !s.me.canManage;
+  }
+  const chance = $("liar-hint-chance");
+  if (document.activeElement !== chance) chance.value = String(s.liarHintChance);
+  chance.disabled = !s.me.canManage;
+  show($("liar-words-card"), s.mode === "klamca" && s.liarSource === "players");
+}
+
+for (const button of document.querySelectorAll(".liar-source-btn")) {
+  button.onclick = () => act("setLiarSettings", { source: button.dataset.source });
+}
+$("liar-hint-chance").onchange = (event) => act("setLiarSettings", { hintChance: Number(event.target.value) });
+
+const liarWordsForm = (() => {
+  const rows = [];
+  let dirty = false;
+  for (let i = 0; i < 5; i++) {
+    const word = el("input", "liar-word-input");
+    word.maxLength = 40;
+    word.placeholder = "Hasło " + (i + 1);
+    word.autocomplete = "off";
+    const hint = el("input", "liar-hint-input");
+    hint.maxLength = 40;
+    hint.placeholder = "podpowiedź";
+    hint.autocomplete = "off";
+    for (const input of [word, hint]) input.addEventListener("input", () => {
+      dirty = true;
+      refresh();
+    });
+    const row = el("div", "liar-word-row");
+    row.append(el("span", "liar-word-number", String(i + 1)), word, hint);
+    $("liar-word-inputs").appendChild(row);
+    rows.push({ word, hint });
+  }
+
+  function values() {
+    return rows.map((row) => ({ word: row.word.value.trim(), hint: row.hint.value.trim() }));
+  }
+
+  function refresh() {
+    const list = values();
+    const filled = list.filter((entry) => entry.word && entry.hint).length;
+    const ready = store.state && store.state.me.liarReady;
+    let status = filled + "/5 gotowych";
+    if (dirty) status += " · niezapisane zmiany";
+    else if (ready) status = "✓ Hasła zapisane";
+    $("liar-words-status").textContent = status;
+    $("liar-words-status").classList.toggle("status-ok", !dirty && Boolean(ready));
+    $("btn-save-liar-words").disabled = filled < 5;
+  }
+
+  $("btn-save-liar-words").onclick = async () => {
+    const response = await act("setLiarWords", { entries: values() });
+    if (response.ok) {
+      dirty = false;
+      toast("Hasła zapisane");
+      refresh();
+    }
+  };
+
+  function sync(s) {
+    if (!dirty && s.me.liarWords && s.me.liarWords.length) {
+      s.me.liarWords.forEach((entry, i) => {
+        if (!rows[i]) return;
+        rows[i].word.value = entry.word;
+        rows[i].hint.value = entry.hint;
+      });
+    }
+    refresh();
+  }
+
+  function reset() {
+    dirty = false;
+    for (const row of rows) {
+      row.word.value = "";
+      row.hint.value = "";
+    }
+    refresh();
+  }
+
+  return { sync, reset };
+})();
+
+const liarUi = { roundKey: "", stageKey: "", introRound: 0 };
+
+function liarNick(id) {
+  return (findPlayer(id) || { nick: "?" }).nick;
+}
+
+function liarTileLabel(s, p) {
+  const liar = s.liar;
+  if (!liar) return "—";
+  if (p.id === liar.masterId) return "🎬 prowadzi";
+  if (liar.stage === "reveal") {
+    const result = (liar.results || []).find((r) => r.id === p.id);
+    const pts = result ? "+" + result.points : "";
+    return p.id === liar.impostorId ? "🕵️ kłamca " + pts : pts || "—";
+  }
+  if (liar.stage === "vote") return liar.voted.includes(p.id) ? "✅ zagłosował(a)" : "🤔 myśli…";
+  const clues = liar.clues.filter((clue) => clue.playerId === p.id).map((clue) => clue.text);
+  if (liar.stage === "clues" && liar.speakerId === p.id) return clues.length ? clues.join(" · ") + " · 🗣️" : "🗣️ mówi…";
+  return clues.length ? clues.join(" · ") : liar.stage === "setup" ? "⏳" : "…";
+}
+
+function renderLiarRole(s) {
+  const liar = s.liar;
+  const role = $("liar-role");
+  role.className = "liar-role";
+  role.replaceChildren();
+  if (liar.role === "master") {
+    role.classList.add("master");
+    if (liar.stage === "setup") role.append(el("div", "liar-role-label", "🎬 Prowadzisz rundę"), el("div", "liar-role-word", "Wymyśl hasło"));
+    else {
+      role.append(el("div", "liar-role-label", "🎬 Prowadzisz · kłamcą jest " + liarNick(liar.impostorId)), el("div", "liar-role-word", liar.word));
+      role.appendChild(el("div", "liar-role-hint", liar.hintGiven ? "Kłamca dostał podpowiedź: " + liar.hint : "Kłamca gra bez podpowiedzi"));
+    }
+    return;
+  }
+  if (liar.stage === "setup") {
+    role.append(el("div", "liar-role-label", "🎬 " + liarNick(liar.masterId) + " wymyśla hasło…"));
+    return;
+  }
+  if (liar.role === "impostor" && liar.stage !== "reveal") {
+    role.classList.add("impostor");
+    role.append(el("div", "liar-role-label", "Nie znasz hasła"), el("div", "liar-role-word", "🕵️ JESTEŚ KŁAMCĄ"));
+    role.appendChild(el("div", "liar-role-hint", liar.hintGiven ? "Podpowiedź: " + liar.hint : "Bez podpowiedzi 😈 Udawaj!"));
+    return;
+  }
+  role.classList.add("crew");
+  role.append(el("div", "liar-role-label", liar.stage === "reveal" ? "Hasło było" : "Twoje hasło"), el("div", "liar-role-word", liar.word || "?"));
+  if (liar.stage === "reveal" && liar.hint) {
+    role.appendChild(el("div", "liar-role-hint", (liar.hintGiven ? "Kłamca dostał podpowiedź: " : "Kłamca NIE dostał podpowiedzi: ") + liar.hint));
+  }
+}
+
+function renderLiarPanel(s) {
+  const liar = s.liar;
+  const me = s.me.id;
+  const isMaster = liar.masterId === me;
+  const isSpeaker = liar.speakerId === me;
+  const canSkip = s.me.canManage || isMaster;
+  const stage = liar.stage;
+  show($("liar-setup"), stage === "setup" && isMaster);
+  show($("liar-clue-form"), stage === "clues" && isSpeaker);
+  show($("liar-discuss"), stage === "discuss");
+  show($("liar-skip"), stage === "discuss" && canSkip);
+  show($("liar-vote"), stage === "vote" && !isMaster);
+  show($("liar-guess"), stage === "guess" && liar.impostorId === me);
+  show($("liar-reveal"), stage === "reveal");
+  let wait = "";
+  if (stage === "setup" && !isMaster) wait = "🎬 " + liarNick(liar.masterId) + " wpisuje hasło…";
+  if (stage === "clues" && !isSpeaker) wait = "🗣️ Mówi " + liarNick(liar.speakerId) + " · kółko " + liar.lap + "/" + liar.laps;
+  if (stage === "vote" && isMaster) wait = "Głosują… " + liar.voted.length + "/" + liar.voters;
+  if (stage === "guess" && liar.impostorId !== me) wait = "😬 " + liarNick(liar.impostorId) + " był(a) kłamcą! Ostatnia szansa: zgaduje hasło…";
+  $("liar-wait").textContent = wait;
+  show($("liar-wait"), Boolean(wait));
+  if (stage === "vote" && !isMaster) {
+    $("liar-vote-status").textContent = liar.myVote
+      ? "Twój głos: " + liarNick(liar.myVote) + " (możesz zmienić) · zagłosowali " + liar.voted.length + "/" + liar.voters
+      : "Kto kłamie? Kliknij gracza · zagłosowali " + liar.voted.length + "/" + liar.voters;
+    const box = $("liar-vote-buttons");
+    box.replaceChildren();
+    for (const p of s.players) {
+      if (p.id === me || p.id === liar.masterId) continue;
+      const button = el("button", "btn help-choice liar-vote-btn" + (liar.myVote === p.id ? " selected" : ""));
+      button.style.setProperty("--pc", p.color);
+      const slot = el("div", "media-slot");
+      bindSlot(slot, p);
+      button.append(slot, el("span", "", p.nick));
+      button.onclick = () => act("liar:vote", { playerId: p.id });
+      box.appendChild(button);
+    }
+  }
+  if (stage === "reveal") {
+    const impostor = liarNick(liar.impostorId);
+    let title;
+    if (liar.escaped) title = "🏃 Kłamca " + impostor + " uciekł z gry!";
+    else if (!liar.caught) title = "😈 " + impostor + " oszukał(a) wszystkich!";
+    else if (liar.guessCorrect) title = "😏 Złapany, ale " + impostor + " zgadł(a) hasło!";
+    else title = "🎉 Złapaliście kłamcę: " + impostor + "!";
+    $("liar-reveal-title").textContent = title;
+    const details = [];
+    if (liar.guess) details.push("Strzał kłamcy: „" + liar.guess + "”" + (liar.guessCorrect ? " ✅" : " ❌"));
+    const votes = (liar.votes || []).map(([voter, target]) => liarNick(voter) + " → " + liarNick(target));
+    if (votes.length) details.push("Głosy: " + votes.join(", "));
+    $("liar-reveal-details").textContent = details.join(" · ");
+    const list = $("liar-results");
+    list.replaceChildren();
+    for (const r of liar.results || []) {
+      const row = el("div", "wave-result" + (r.impostor ? " liar-impostor-row" : ""));
+      row.style.setProperty("--pc", r.color);
+      row.append(
+        el("span", "wave-result-nick", (r.impostor ? "🕵️ " : "") + r.nick),
+        el("span", "wave-result-value", r.votedFor ? "głos na " + liarNick(r.votedFor) : "bez głosu"),
+        el("span", "wave-result-points", "+" + r.points)
+      );
+      list.appendChild(row);
+    }
+    show($("liar-continue"), canSkip);
+  }
+}
+
+function renderLiar(s) {
+  const active = s.mode === "klamca" && Boolean(s.liar);
+  show($("liar-stage"), active);
+  if (!active) return;
+  const liar = s.liar;
+  store.quietTimer = liar.stage === "reveal" || liar.stage === "discuss";
+  store.turnTotal = s.turnTotalMs || TURN_TOTAL_MS;
+  show($("action-bar"), false);
+  show($("help-bar"), false);
+  const stageKey = liar.round + "|" + liar.stage + "|" + liar.speakerId;
+  if (liarUi.stageKey !== stageKey) {
+    liarUi.stageKey = stageKey;
+    if (liar.stage === "setup" && liar.masterId === s.me.id) {
+      $("liar-setup-word").value = "";
+      $("liar-setup-hint").value = "";
+      setTimeout(() => $("liar-setup-word").focus(), 50);
+    }
+    if (liar.stage === "clues" && liar.speakerId === s.me.id) {
+      $("liar-clue-input").value = "";
+      setTimeout(() => $("liar-clue-input").focus(), 50);
+    }
+    if (liar.stage === "guess" && liar.impostorId === s.me.id) {
+      $("liar-guess-input").value = "";
+      setTimeout(() => $("liar-guess-input").focus(), 50);
+    }
+  }
+  if (liar.stage !== "setup" && liarUi.introRound !== liar.round && liar.role) {
+    liarUi.introRound = liar.round;
+    fx.afterBusy(() => {
+      if (liar.role === "impostor") fx.overlay([el("div", "fx-big liar-fx-impostor", "🕵️ JESTEŚ KŁAMCĄ!"), el("div", "fx-sub", liar.hintGiven ? "Podpowiedź: " + liar.hint : "Bez podpowiedzi. Powodzenia 😈")], "fx-win liar-fx", 2600);
+      else if (liar.role === "crew") fx.overlay([el("div", "fx-sub", "Twoje hasło"), el("div", "fx-big", liar.word)], "fx-win liar-fx", 2200);
+    });
+  }
+  let banner;
+  if (liar.stage === "setup") banner = liar.masterId === s.me.id ? "🎬 Wpisz hasło na rundę" : "🎬 Prowadzący wymyśla hasło";
+  else if (liar.stage === "clues") banner = liar.speakerId === s.me.id ? "🗣️ Twoje słowo!" : "🗣️ Mówi: " + liarNick(liar.speakerId);
+  else if (liar.stage === "discuss") banner = "🗣️ Dyskusja";
+  else if (liar.stage === "vote") banner = "🗳️ Głosowanie";
+  else if (liar.stage === "guess") banner = "😬 Kłamca zgaduje hasło";
+  else banner = "🎉 Odsłona!";
+  $("turn-banner").replaceChildren(banner + " ", el("span", "turn-timer"));
+  $("turn-banner").classList.toggle("mine", s.activeId === s.me.id);
+  renderLiarRole(s);
+  renderLiarPanel(s);
+  updateTurnTimers();
+}
+
+$("liar-setup-submit").onclick = () => act("liar:setup", { word: $("liar-setup-word").value, hint: $("liar-setup-hint").value });
+$("liar-clue-submit").onclick = () => act("liar:clue", { text: $("liar-clue-input").value });
+$("liar-skip").onclick = () => act("liar:skip");
+$("liar-guess-submit").onclick = () => act("liar:guess", { text: $("liar-guess-input").value });
+$("liar-continue").onclick = () => act("liar:continue");
+for (const [inputId, buttonId] of [["liar-setup-word", "liar-setup-submit"], ["liar-setup-hint", "liar-setup-submit"], ["liar-clue-input", "liar-clue-submit"], ["liar-guess-input", "liar-guess-submit"]]) {
+  $(inputId).addEventListener("keydown", (event) => {
+    if (event.key === "Enter") $(buttonId).click();
+  });
+}
+
+function renderLiarRounds(rounds) {
+  const history = $("history");
+  for (const round of rounds) {
+    const card = el("div", "history-player");
+    const head = el("div", "history-head");
+    let result;
+    if (round.escaped) result = "🏃 uciekł";
+    else if (!round.caught) result = "😈 wygrał";
+    else if (round.guessCorrect) result = "😏 zgadł hasło";
+    else result = "🎉 złapany";
+    head.append(el("span", "history-nick", "„" + round.word + "”"), el("span", "history-stats", "kłamca: " + round.impostorNick + " · " + result));
+    const list = el("ol", "history-list");
+    const meta = el("li", "history-item");
+    meta.append(
+      el("span", "history-icon", "🕵️"),
+      el("span", "history-word", round.hint ? (round.hintGiven ? "podpowiedź: " : "bez podpowiedzi (było: ") + round.hint + (round.hintGiven ? "" : ")") : "bez podpowiedzi"),
+      el("span", "history-author", round.guess ? "strzał: " + round.guess : ""),
+      el("span", "history-time", round.clues.map((clue) => clue.nick + ": " + clue.text).join(", "))
+    );
+    list.appendChild(meta);
+    card.append(head, list);
+    history.appendChild(card);
+  }
+  show($("history-box"), rounds.length > 0);
 }
 
 for (const button of document.querySelectorAll(".mode-btn")) {
@@ -2580,9 +3001,12 @@ function render() {
   }
   chat.renderAvailability();
   document.body.classList.toggle("mode-wave", s.mode === "wskazowka");
+  document.body.classList.toggle("mode-liar", s.mode === "klamca");
   notes.placeholder = s.mode === "wskazowka"
     ? "Twoje notatki: skojarzenia, podpowiedzi innych… Zostają tylko u ciebie."
-    : "Co już wiesz o swoim haśle? Notatki zostają tylko u ciebie.";
+    : s.mode === "klamca"
+      ? "Notuj podejrzane skojarzenia… Zostają tylko u ciebie."
+      : "Co już wiesz o swoim haśle? Notatki zostają tylko u ciebie.";
   if (s.phase !== "game") {
     store.voteDeadline = 0;
     store.turnDeadline = 0;
@@ -2605,6 +3029,7 @@ function goHome(message) {
   video.disconnect();
   avatarEditor.reset();
   wordsForm.reset();
+  liarWordsForm.reset();
   for (const tile of tiles.values()) tile.root.remove();
   tiles.clear();
   show($("admin-toggle"), false);
