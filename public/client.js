@@ -2142,11 +2142,12 @@ const WAVE_CENTER_X = 200;
 const WAVE_CENTER_Y = 210;
 const WAVE_RADIUS = 190;
 const WAVE_BANDS = [[18, 2], [11, 3], [4, 4]];
-const WAVE_MOVE_THROTTLE_MS = 150;
+const WAVE_MOVE_THROTTLE_MS = 100;
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 const waveUi = {
   value: null,
+  live: new Map(),
   dragging: false,
   lastSent: 0,
   sendTimer: null,
@@ -2237,10 +2238,11 @@ function drawDial(s) {
       for (const [width, points] of WAVE_BANDS) {
         targetGroup.appendChild(svgEl("path", { d: wedgePath(wave.target - width, wave.target + width, WAVE_RADIUS - 2) }, "wave-band wave-band-" + points));
       }
-      for (const [offset, points] of [[-14.5, 2], [-7.5, 3], [0, 4], [7.5, 3], [14.5, 2]]) {
-        const value = wave.target + offset;
-        if (value < 1 || value > 99) continue;
-        const [x, y] = wavePoint(value, WAVE_RADIUS * 0.8);
+      for (const [from, to, points] of [[-18, -11, 2], [-11, -4, 3], [-4, 4, 4], [4, 11, 3], [11, 18, 2]]) {
+        const start = Math.max(0, wave.target + from);
+        const end = Math.min(100, wave.target + to);
+        if (end - start < 2.5) continue;
+        const [x, y] = wavePoint((start + end) / 2, WAVE_RADIUS * 0.8);
         const label = svgEl("text", { x: x.toFixed(2), y: (y + 6).toFixed(2), "text-anchor": "middle" }, "wave-band-text");
         label.textContent = points;
         targetGroup.appendChild(label);
@@ -2266,9 +2268,11 @@ function drawDial(s) {
         }
       }
     }
+    svg.appendChild(svgEl("g", {}, "wave-live"));
     svg.appendChild(svgEl("g", {}, "wave-needles"));
     svg.appendChild(svgEl("circle", { cx: WAVE_CENTER_X, cy: WAVE_CENTER_Y, r: 16 }, "wave-hub"));
   }
+  if (wave.stage === "guess" && isPsychic) renderLiveNeedles(s);
   const needles = svg.querySelector(".wave-needles");
   needles.replaceChildren();
   const me = findPlayer(s.me.id);
@@ -2282,6 +2286,39 @@ function drawDial(s) {
   }
   svg.classList.toggle("interactive", wave.stage === "guess" && !isPsychic && !wave.myLocked);
 }
+
+function renderLiveNeedles(s) {
+  const wave = s.wave;
+  const group = $("wave-dial").querySelector(".wave-live");
+  if (!group || !wave || wave.stage !== "guess" || wave.psychicId !== s.me.id) return;
+  for (const entry of wave.live || []) {
+    if (!waveUi.live.has(entry.id)) waveUi.live.set(entry.id, { value: entry.value, locked: wave.locked.includes(entry.id) });
+  }
+  const tipY = WAVE_CENTER_Y - WAVE_RADIUS * 0.93;
+  for (const [id, entry] of waveUi.live) {
+    const player = findPlayer(id);
+    if (!player) continue;
+    let needle = group.querySelector('[data-id="' + id + '"]');
+    if (!needle) {
+      needle = svgEl("g", { "data-id": id }, "wave-live-needle");
+      needle.appendChild(svgEl("line", { x1: WAVE_CENTER_X, y1: WAVE_CENTER_Y, x2: WAVE_CENTER_X, y2: tipY, stroke: player.color }, "wave-needle-line"));
+      needle.appendChild(svgEl("circle", { cx: WAVE_CENTER_X, cy: tipY, r: 11, fill: player.color }, "wave-needle-knob"));
+      const text = svgEl("text", { x: WAVE_CENTER_X, y: tipY + 4, "text-anchor": "middle" }, "wave-needle-text");
+      text.textContent = player.nick.charAt(0).toUpperCase();
+      needle.appendChild(text);
+      group.appendChild(needle);
+    }
+    const locked = entry.locked || wave.locked.includes(id);
+    needle.classList.toggle("locked", locked);
+    needle.style.transform = "rotate(" + ((entry.value - 50) * 1.8).toFixed(2) + "deg)";
+  }
+}
+
+socket.on("wave:live", ({ playerId, value, locked }) => {
+  waveUi.live.set(playerId, { value, locked: Boolean(locked) });
+  const s = store.state;
+  if (s && s.mode === "wskazowka" && s.wave) renderLiveNeedles(s);
+});
 
 function waveValueFromEvent(event) {
   const svg = $("wave-dial");
@@ -2411,6 +2448,7 @@ function renderWave(s) {
     waveUi.roundKey = roundKey;
     if (newRound) {
       waveUi.value = wave.myGuess;
+      waveUi.live = new Map();
       $("wave-clue-input").value = "";
     }
     if (wave.stage === "scale" && waveUi.setKey !== String(wave.set)) {

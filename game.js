@@ -976,7 +976,7 @@ class Room {
   }
 
   randomTarget() {
-    return 3 + crypto.randomInt(95);
+    return crypto.randomInt(101);
   }
 
   startWaveRound(psychic) {
@@ -1077,6 +1077,7 @@ class Room {
     if (wave.locked.has(player.id)) return;
     const first = !wave.guesses.has(player.id);
     wave.guesses.set(player.id, this.cleanDial(value));
+    this.emit("waveLive", wave.psychicId, { playerId: player.id, value: wave.guesses.get(player.id), locked: false });
     if (first) this.changed();
   }
 
@@ -1088,6 +1089,7 @@ class Room {
       if (value !== undefined && value !== null) wave.guesses.set(player.id, this.cleanDial(value));
       if (!wave.guesses.has(player.id)) fail("Najpierw ustaw wskazówkę");
       wave.locked.add(player.id);
+      this.emit("waveLive", wave.psychicId, { playerId: player.id, value: wave.guesses.get(player.id), locked: true });
     } else {
       wave.locked.delete(player.id);
     }
@@ -1208,6 +1210,7 @@ class Room {
       target: isPsychic || revealed ? wave.target : null,
       myGuess: wave.guesses.has(viewer.id) ? wave.guesses.get(viewer.id) : null,
       myLocked: wave.locked.has(viewer.id),
+      live: isPsychic && wave.stage === "guess" ? [...wave.guesses.entries()].map(([id, value]) => ({ id, value })) : null,
       locked: [...wave.locked],
       touched: [...wave.guesses.keys()],
       guessers: this.waveGuessers().length,

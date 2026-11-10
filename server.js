@@ -78,6 +78,11 @@ registry.on("event", (room, text) => sendToRoom(room, "event", { text }));
 
 registry.on("fx", (room, payload) => sendToRoom(room, "fx", payload));
 
+registry.on("waveLive", (room, psychicId, payload) => {
+  const psychic = room.getPlayer(psychicId);
+  if (psychic) sendToPlayer(psychic, "wave:live", payload);
+});
+
 registry.on("chat", (room, message) => {
   for (const player of room.players) {
     if (room.chatVisibleTo(player, message)) sendToPlayer(player, "chat:message", room.chatViewFor(player, message));

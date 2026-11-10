@@ -2792,9 +2792,9 @@ input.invalid {
   min-width: 0;
   padding: 4px 8px;
   border-radius: 10px;
-  border: 2px solid var(--card-border);
+  border: 2px solid var(--input-border);
   background: var(--input-bg, var(--card));
-  color: inherit;
+  color: var(--input-text);
   font: inherit;
 }
 
@@ -2839,9 +2839,9 @@ input.invalid {
   max-height: 120px;
   padding: 8px 10px;
   border-radius: 12px;
-  border: 2px solid var(--card-border);
+  border: 2px solid var(--input-border);
   background: var(--input-bg, var(--card));
-  color: inherit;
+  color: var(--input-text);
   font: inherit;
   line-height: 1.3;
 }
@@ -3129,9 +3129,9 @@ input.invalid {
   flex: 1;
   padding: 8px 12px;
   border-radius: 12px;
-  border: 2px solid var(--card-border);
+  border: 2px solid var(--input-border);
   background: var(--input-bg, var(--card));
-  color: inherit;
+  color: var(--input-text);
   font: inherit;
   font-size: 1.05rem;
 }
@@ -3248,4 +3248,32 @@ input.invalid {
 .wave-dial * {
   user-select: none;
   -webkit-user-select: none;
+}
+
+.chat-to-row select option {
+  background: var(--input-bg);
+  color: var(--input-text);
+}
+
+.chat-panel {
+  background: linear-gradient(var(--card), var(--card)), var(--navy-deep);
+}
+
+.chat-private-tag {
+  color: #c9a7ff;
+}
+
+.wave-live-needle {
+  transform-origin: 200px 210px;
+  transition: transform 0.16s linear;
+  opacity: 0.65;
+}
+
+.wave-live-needle.locked {
+  opacity: 1;
+}
+
+.wave-live-needle.locked .wave-needle-knob {
+  stroke: var(--green);
+  stroke-width: 4;
 }
