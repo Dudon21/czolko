@@ -490,6 +490,16 @@ io.on("connection", (socket) => {
     room.adminAdjustScore(player, playerId, delta);
   });
 
+  handle(socket, "admin:giveCard", ({ playerId, type }) => {
+    const { room, player } = currentSession(socket);
+    room.adminGiveCard(player, playerId, type);
+  });
+
+  handle(socket, "admin:takeCards", ({ playerId }) => {
+    const { room, player } = currentSession(socket);
+    room.adminTakeCards(player, playerId);
+  });
+
   handle(socket, "admin:reroll", ({ playerId }) => {
     const { room, player } = currentSession(socket);
     room.adminRerollWord(player, playerId);

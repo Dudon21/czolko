@@ -160,7 +160,7 @@ class Room {
     this.chat = [];
     this.chatSeq = 0;
     this.five = null;
-    this.fivePool = [];
+    this.fiveUsed = new Set();
     this.fiveForced = [];
     this.fiveHistory = [];
     this.fiveRound = 0;
@@ -1411,7 +1411,7 @@ class Room {
 
   setSetting(player, key, rawValue) {
     this.requireManager(player);
-    this.requirePhase("lobby");
+    this.requirePhase("lobby", "game");
     const spec = SETTINGS_BY_KEY.get(key);
     if (!spec) fail("Nieznane ustawienie");
     const number = Number(rawValue);
@@ -1419,13 +1419,13 @@ class Room {
     if (number < spec.min || number > spec.max) fail(`${spec.label}: od ${spec.min} do ${spec.max}`);
     const value = Math.round(Math.round(number / spec.step) * spec.step * 100) / 100;
     this.settings[key] = value;
-    this.announce(`⚙️ ${spec.label}: ${formatPoints(value)}`);
+    this.announce(`⚙️ ${spec.label}: ${formatPoints(value)}${this.phase === "game" && spec.startOnly ? " (od następnej gry)" : ""}`);
     this.changed();
   }
 
   resetSettings(player, mode) {
     this.requireManager(player);
-    this.requirePhase("lobby");
+    this.requirePhase("lobby", "game");
     const defaults = defaultSettings();
     for (const [key, spec] of SETTINGS_BY_KEY) if (!mode || spec.mode === mode) this.settings[key] = defaults[key];
     this.announce("⚙️ Przywrócono domyślne ustawienia");
@@ -2227,7 +2227,7 @@ class Room {
   }
 }
 
-Object.assign(Room.prototype, require("./five")({ fail, cleanText, shuffle, textKey }));
+Object.assign(Room.prototype, require("./five")({ fail, cleanText, textKey }));
 
 class Registry extends EventEmitter {
   constructor() {

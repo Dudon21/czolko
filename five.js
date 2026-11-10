@@ -7,7 +7,7 @@ const FIVE_MAX_CARDS = 5;
 
 const FIVE_CARDS = {
   revive: { icon: "🧟", name: "Wskrzeszenie", text: "Przywraca do gry osobę, która odpadła (też ciebie), z 1 życiem", target: "dead" },
-  angel: { icon: "😇", name: "Anioł stróż", text: "Podczas głosowania: odpowiadający dostaje drugie podejście (nowe 5 sekund)", target: null },
+  angel: { icon: "😇", name: "Anioł stróż", text: "Podczas głosowania: odpowiadający dostaje drugie podejście (nowy czas na odpowiedź)", target: null },
   torpedo: { icon: "💣", name: "Torpeda", text: "Wskazana osoba musi odpowiadać na następne pytanie. Jak nie zaliczy, traci 2 życia", target: "other" },
   ally: { icon: "🤝", name: "Sojusznik", text: "Oddajesz 1 swoje życie, wskazana osoba dostaje 2", target: "other" },
   double: { icon: "🔁", name: "Dwa z rzędu", text: "Wskazana osoba odpowiada na 2 następne pytania z rzędu", target: "alive" },
@@ -19,7 +19,7 @@ const FIVE_CARDS = {
 const FIVE_CARD_TYPES = Object.keys(FIVE_CARDS);
 const CURSE_TYPES = ["torpedo", "english", "disco", "four"];
 
-module.exports = function fiveMethods({ fail, cleanText, shuffle, textKey }) {
+module.exports = function fiveMethods({ fail, cleanText, textKey }) {
   return {
     setFiveTasks(player, rawTasks) {
       this.requirePhase("lobby");
@@ -61,24 +61,36 @@ module.exports = function fiveMethods({ fail, cleanText, shuffle, textKey }) {
       return card;
     },
 
-    fillFivePool() {
-      const own = this.players.flatMap((p) => (p.fiveTasks || []).map((text) => ({ text, authorId: p.id })));
-      this.fivePool = shuffle([...TASKS.map((text) => ({ text, authorId: null })), ...own]);
+    allFiveTasks() {
+      const seen = new Set();
+      const all = [];
+      const add = (text, authorId) => {
+        const key = textKey(text);
+        if (seen.has(key)) return;
+        seen.add(key);
+        all.push({ text, authorId, key });
+      };
+      for (const p of this.players) for (const text of p.fiveTasks || []) add(text, p.id);
+      for (const text of TASKS) add(text, null);
+      return all;
     },
 
     drawFiveTask() {
-      if (!this.fivePool.length) this.fillFivePool();
-      const chance = this.settings.fiveOwnChance;
-      const hasOwn = this.players.some((p) => (p.fiveTasks || []).length);
-      if (!chance || !hasOwn) return this.fivePool.pop();
-      const wantOwn = crypto.randomInt(100) < chance;
-      const find = () => this.fivePool.map((task) => Boolean(task.authorId) === wantOwn).lastIndexOf(true);
-      let index = find();
-      if (index < 0) {
-        this.fillFivePool();
-        index = find();
+      const all = this.allFiveTasks();
+      let fresh = all.filter((task) => !this.fiveUsed.has(task.key));
+      if (!fresh.length) {
+        this.fiveUsed.clear();
+        this.announce("♻️ Wszystkie zadania już były, losujemy od nowa");
+        fresh = all;
       }
-      return index < 0 ? this.fivePool.pop() : this.fivePool.splice(index, 1)[0];
+      let pool = fresh;
+      const chance = this.settings.fiveOwnChance;
+      const own = fresh.filter((task) => task.authorId);
+      const listed = fresh.filter((task) => !task.authorId);
+      if (chance && own.length && listed.length) pool = crypto.randomInt(100) < chance ? own : listed;
+      const task = pool[crypto.randomInt(pool.length)];
+      this.fiveUsed.add(task.key);
+      return { text: task.text, authorId: task.authorId };
     },
 
     beginFive() {
@@ -88,7 +100,6 @@ module.exports = function fiveMethods({ fail, cleanText, shuffle, textKey }) {
       this.fiveForced = [];
       this.fiveOutSeq = 0;
       this.fiveCardSeq = 0;
-      this.fillFivePool();
       for (const p of this.players) {
         p.word = null;
         p.helpsUsed = 0;
@@ -409,6 +420,31 @@ module.exports = function fiveMethods({ fail, cleanText, shuffle, textKey }) {
         if (forced && forced.id !== five.askerId) this.fivePrepare(forced);
         else if (forced) this.startFivePick(five.askerId);
       }
+      this.changed();
+    },
+
+    adminGiveCard(admin, playerId, type) {
+      this.requireAdmin(admin);
+      this.requirePhase("game");
+      this.requireMode("piec");
+      const target = this.requireTarget(playerId);
+      if (type !== "random" && !FIVE_CARD_TYPES.includes(type)) fail("Nieznana karta");
+      if (target.cards.length >= FIVE_MAX_CARDS) fail(`${target.nick} ma już maksymalnie ${FIVE_MAX_CARDS} kart`);
+      const card = type === "random" ? this.randomCard() : { id: ++this.fiveCardSeq, type };
+      target.cards.push(card);
+      this.fx("fiveGift", { playerId: target.id });
+      this.announce(`🎁 Host daje tajną kartę 🃏 graczowi ${target.nick}`);
+      this.changed();
+    },
+
+    adminTakeCards(admin, playerId) {
+      this.requireAdmin(admin);
+      this.requirePhase("game");
+      this.requireMode("piec");
+      const target = this.requireTarget(playerId);
+      if (!target.cards.length) fail(`${target.nick} nie ma kart`);
+      target.cards = [];
+      this.announce(`🗑️ Host zabiera karty graczowi ${target.nick}`);
       this.changed();
     },
 

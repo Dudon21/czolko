@@ -624,7 +624,7 @@ const fx = {
         break;
       case "fiveGo":
         sfx.play("voteStart", 0);
-        this.stamp(id, cfg("fiveAnswerSeconds", 5) + " SEKUND!", "stamp-vote");
+        this.stamp(id, fiveSecondsText().toUpperCase() + "!", "stamp-vote");
         break;
       case "fiveResult":
         if (event.passed) {
@@ -645,6 +645,15 @@ const fx = {
             else this.overlay([el("div", "fx-sub", liarNick(id) + " dostaje tajną kartę"), el("div", "fx-big", "🃏")], "fx-win", 1500);
           }, 600);
         }
+        break;
+      case "fiveGift":
+        sfx.play("refill", 0);
+        this.stamp(id, "🎁", "stamp-author");
+        setTimeout(() => {
+          const mine = id === me ? findPlayer(me) : null;
+          const newest = mine && mine.cards.length ? fiveCardInfo(mine.cards[mine.cards.length - 1].type) : null;
+          if (newest) this.overlay([el("div", "fx-sub", "🎁 Host daje ci kartę"), el("div", "fx-big", newest.icon + " " + newest.name), el("div", "fx-sub", newest.text)], "fx-win", 2600);
+        }, 300);
         break;
       case "fiveCard": {
         const info = (store.fiveCards || {})[event.card];
@@ -2218,6 +2227,9 @@ function renderAdminPanel(s) {
   if (document.activeElement !== helpLimitInput) helpLimitInput.value = s.helpLimit;
   for (const button of document.querySelectorAll("[data-admin=endHelp]")) button.disabled = !s.help;
   for (const button of document.querySelectorAll("[data-admin=approve], [data-admin=reject]")) button.disabled = !s.vote;
+  if (s.mode === "piec") renderAdminFive(s);
+  if (s.phase === "game") renderSettingsInto($("admin-settings-fields"), adminSettingsUi, s);
+  show($("admin-settings"), s.phase === "game");
   for (const button of document.querySelectorAll("[data-admin=forceNext]")) {
     button.disabled = s.phase !== "game";
     button.textContent = s.mode === "wskazowka" ? "Następna runda" : s.mode === "klamca" || s.mode === "piec" ? "Dalej / pomiń" : "Wymuś Next";
@@ -2228,7 +2240,8 @@ function renderAdminPanel(s) {
   for (const p of s.players) {
     const row = el("div", "admin-player");
     row.style.setProperty("--pc", p.color);
-    row.appendChild(el("span", "admin-nick", p.nick + " · " + fmtScore(p.score) + " pkt"));
+    const cardsInfo = s.mode === "piec" ? " · 🃏" + (p.cardCount || 0) : "";
+    row.appendChild(el("span", "admin-nick", p.nick + " · " + scoreUnit(s, p.score) + cardsInfo));
     const buttons = [
       ["−1", "score", -1],
       ["+1", "score", 1]
@@ -2240,6 +2253,14 @@ function renderAdminPanel(s) {
       button.dataset.delta = delta;
       button.disabled = s.phase !== "game";
       row.appendChild(button);
+    }
+    if (s.mode === "piec") {
+      const take = el("button", "btn btn-small", "🗑️🃏");
+      take.title = "Zabierz wszystkie karty";
+      take.dataset.admin = "takeCards";
+      take.dataset.id = p.id;
+      take.disabled = s.phase !== "game" || !p.cardCount;
+      row.appendChild(take);
     }
     const reroll = el("button", "btn btn-small czolko-only", "🔄");
     reroll.title = "Wylosuj nowe hasło";
@@ -2277,6 +2298,8 @@ $("admin-panel").addEventListener("click", (event) => {
   if (action === "helpLimit") act("setHelpLimit", { limit: Number($("admin-help-limit").value) });
   if (action === "endHelp") act("help:end");
   if (action === "score") act("admin:score", { playerId: id, delta: Number(delta) });
+  if (action === "giveCard") act("admin:giveCard", { playerId: $("admin-card-player").value, type: $("admin-card-type").value });
+  if (action === "takeCards" && target) ask(`Zabrać wszystkie karty graczowi ${target.nick}?`, () => act("admin:takeCards", { playerId: id }));
   if (action === "restart") ask("Zrestartować grę? Punkty się wyzerują, hasła zostaną wylosowane od nowa.", () => act("admin:restart"));
   if (action === "reroll" && target) {
     const label = target.word ? `„${target.word}”` : "obecne hasło";
@@ -2667,11 +2690,15 @@ $("wave-continue").onclick = () => act("wave:continue");
 const advancedUi = { signature: "" };
 
 function renderAdvancedSettings(s) {
+  renderSettingsInto($("advanced-fields"), advancedUi, s);
+}
+
+function renderSettingsInto(box, ui, s) {
   const spec = (store.settingsSpec || []).filter((setting) => setting.mode === s.mode);
-  const box = $("advanced-fields");
-  const signature = s.mode + "|" + spec.length + "|" + s.me.canManage;
-  if (advancedUi.signature !== signature) {
-    advancedUi.signature = signature;
+  const inGame = s.phase === "game";
+  const signature = s.mode + "|" + spec.length + "|" + s.me.canManage + "|" + inGame;
+  if (ui.signature !== signature) {
+    ui.signature = signature;
     box.replaceChildren();
     let group = null;
     for (const setting of spec) {
@@ -2697,7 +2724,7 @@ function renderAdvancedSettings(s) {
       input.addEventListener("keydown", (event) => {
         if (event.key === "Enter") input.blur();
       });
-      row.append(el("span", "advanced-label", setting.label), input);
+      row.append(el("span", "advanced-label", setting.label + (inGame && setting.startOnly ? " (od następnej gry)" : "")), input);
       box.appendChild(row);
     }
     show($("btn-reset-settings"), s.me.canManage);
@@ -2721,7 +2748,7 @@ function renderModePicker(s) {
     button.disabled = !s.me.canManage;
   }
   $("mode-desc").textContent = s.mode === "piec"
-    ? "Jak u WK: pytający czyta zadanie na głos, klika START i odpowiadający ma " + cfg("fiveAnswerSeconds", 5) + " s. Reszta głosuje, czy zaliczyć. Zaliczysz, to przejmujesz pytanie. Nie zaliczysz, tracisz życie. Są karty specjalne, wygrywa ostatni żywy."
+    ? "Jak u WK: pytający czyta zadanie na głos, klika START i odpowiadający ma " + fiveSecondsText() + ". Reszta głosuje, czy zaliczyć. Zaliczysz, to przejmujesz pytanie. Nie zaliczysz, tracisz życie. Są karty specjalne, wygrywa ostatni żywy."
     : s.mode === "wskazowka"
     ? "Ktoś wymyśla skalę (np. zły ↔ dobry kierowca), potem każdy po kolei podpowiada, a reszta ustawia wskazówkę na tarczy. Hasła nie są potrzebne."
     : s.mode === "klamca"
@@ -2739,6 +2766,12 @@ function renderModePicker(s) {
     button.classList.toggle("selected", s.settings && s.settings[button.dataset.key] === Number(button.dataset.value));
     button.disabled = !s.me.canManage;
   }
+  const slider = $("five-time-slider");
+  if (document.activeElement !== slider && s.settings) {
+    slider.value = String(s.settings.fiveAnswerSeconds);
+    $("five-time-value").textContent = s.settings.fiveAnswerSeconds + " s";
+  }
+  slider.disabled = !s.me.canManage;
   const hostSource = s.liarSource === "host";
   show($("liar-master-settings"), hostSource);
   for (const button of document.querySelectorAll(".liar-master-mode-btn")) {
@@ -2769,6 +2802,12 @@ for (const button of document.querySelectorAll(".liar-master-mode-btn")) {
 for (const button of document.querySelectorAll(".five-quick-btn")) {
   button.onclick = () => act("setSetting", { key: button.dataset.key, value: Number(button.dataset.value) });
 }
+$("five-time-slider").addEventListener("input", (event) => {
+  $("five-time-value").textContent = event.target.value + " s";
+});
+$("five-time-slider").addEventListener("change", (event) => {
+  act("setSetting", { key: "fiveAnswerSeconds", value: Number(event.target.value) });
+});
 for (const id of ["liar-master-pick", "liar-next-master"]) {
   $(id).onchange = (event) => act("liar:master", { playerId: event.target.value });
 }
@@ -3891,11 +3930,9 @@ function renderFive(s) {
     box.replaceChildren();
     for (const p of s.players) {
       if (p.id === me || p.out) continue;
-      const button = el("button", "btn help-choice liar-vote-btn");
+      const button = el("button", "btn five-pick-btn");
       button.style.setProperty("--pc", p.color);
-      const slot = el("div", "media-slot");
-      bindSlot(slot, p);
-      button.append(slot, el("span", "five-pick-nick", p.nick), el("span", "five-pick-hearts", fiveHearts(p.lives)));
+      button.append(el("span", "five-pick-nick", p.nick), el("span", "five-pick-hearts", fiveHearts(p.lives)));
       button.onclick = () => act("five:choose", { playerId: p.id });
       box.appendChild(button);
     }
@@ -3918,13 +3955,34 @@ function renderFive(s) {
   let banner;
   if (five.stage === "pick") banner = isAsker ? "🎤 Twoje pytanie!" : "🎤 Pyta: " + asker;
   else if (five.stage === "ready") banner = isAnswerer ? "👂 Pytają cię!" : isAsker ? "📖 Przeczytaj zadanie na głos!" : "📖 " + asker + " czyta zadanie";
-  else if (five.stage === "answer") banner = isAnswerer ? "⏱️ TWOJE " + cfg("fiveAnswerSeconds", 5) + " SEKUND!" : "⏱️ Odpowiada: " + answerer;
+  else if (five.stage === "answer") banner = isAnswerer ? "⏱️ TWOJE " + fiveSecondsText().toUpperCase() + "!" : "⏱️ Odpowiada: " + answerer;
   else banner = "🗳️ Zaliczamy?";
   $("turn-banner").replaceChildren(banner + " ", el("span", "turn-timer"));
   $("turn-banner").classList.toggle("mine", isAsker || isAnswerer);
   renderFiveHand(s, five);
   updateTurnTimers();
+  fitFiveGrid();
 }
+
+function fitFiveGrid() {
+  const grid = $("players-grid");
+  if (!grid.classList.contains("five-mode") || $("screen-game").classList.contains("hidden")) return;
+  const tilesInGrid = [...grid.children];
+  const count = tilesInGrid.length;
+  if (!count) return;
+  const duels = tilesInGrid.filter((node) => node.classList.contains("five-duel")).length;
+  const gap = 16;
+  const ratio = 1.3;
+  const top = grid.getBoundingClientRect().top + window.scrollY;
+  const availableHeight = window.innerHeight - top - 34 - 34 - 26;
+  const availableWidth = grid.clientWidth - 20;
+  const byWidth = (availableWidth - (count - 1) * gap) / (count - duels + duels * ratio);
+  const byHeight = availableHeight / (duels ? ratio : 1);
+  const size = Math.max(110, Math.min(260, byWidth, byHeight));
+  grid.style.setProperty("--five-tile", Math.floor(size) + "px");
+}
+
+window.addEventListener("resize", () => fitFiveGrid());
 
 $("five-reroll").onclick = () => act("five:reroll");
 $("five-start").onclick = () => act("five:start");
@@ -3991,4 +4049,41 @@ function renderFiveRounds(rounds) {
   card.append(head, list);
   history.appendChild(card);
   show($("history-box"), rounds.length > 0);
+}
+
+function fiveSecondsText() {
+  const seconds = cfg("fiveAnswerSeconds", 10);
+  return seconds + (seconds >= 2 && seconds <= 4 ? " sekundy" : " sekund");
+}
+
+const adminSettingsUi = { signature: "" };
+
+function renderAdminFive(s) {
+  const playerSelect = $("admin-card-player");
+  const signature = s.players.map((p) => p.id + ":" + p.nick).join("|");
+  if (playerSelect.dataset.signature !== signature) {
+    const keep = playerSelect.value;
+    playerSelect.dataset.signature = signature;
+    playerSelect.replaceChildren(...s.players.map((p) => {
+      const option = el("option", "", p.nick);
+      option.value = p.id;
+      return option;
+    }));
+    if (keep && s.players.some((p) => p.id === keep)) playerSelect.value = keep;
+  }
+  const typeSelect = $("admin-card-type");
+  const cards = store.fiveCards || {};
+  const typeSignature = Object.keys(cards).join("|");
+  if (typeSelect.dataset.signature !== typeSignature) {
+    typeSelect.dataset.signature = typeSignature;
+    const random = el("option", "", "🎲 Losowa");
+    random.value = "random";
+    typeSelect.replaceChildren(random, ...Object.entries(cards).map(([type, info]) => {
+      const option = el("option", "", info.icon + " " + info.name);
+      option.value = type;
+      option.title = info.text;
+      return option;
+    }));
+  }
+  for (const button of document.querySelectorAll("[data-admin=giveCard]")) button.disabled = s.phase !== "game";
 }

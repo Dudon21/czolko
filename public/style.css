@@ -3782,12 +3782,12 @@ body:not(.mode-five) .five-only {
 }
 
 .players-grid.five-mode .ptile {
-  width: clamp(96px, 13vw, 140px);
+  width: var(--five-tile, 150px);
   transition: width 0.3s ease;
 }
 
 .players-grid.five-mode .ptile.five-duel {
-  width: clamp(130px, 18vw, 190px);
+  width: calc(var(--five-tile, 150px) * 1.3);
 }
 
 .players-grid.five-mode .word-label {
@@ -3880,4 +3880,77 @@ body:not(.mode-five) .five-only {
 
 .players-grid.five-mode .crown {
   display: none;
+}
+
+.five-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 6px;
+}
+
+.five-time-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--yellow);
+  height: 28px;
+  cursor: pointer;
+}
+
+.five-time-slider:disabled {
+  cursor: default;
+}
+
+.five-slider-edge {
+  font-size: 0.8rem;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.five-time-value {
+  min-width: 52px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--yellow);
+  color: #2b2100;
+  font-weight: 800;
+  text-align: center;
+}
+
+.five-pick-btn {
+  min-width: 110px;
+  padding: 6px 16px;
+  border: 4px solid var(--pc);
+  line-height: 1.2;
+}
+
+.five-pick-btn:hover {
+  background: var(--pc);
+}
+
+.admin-five-cards {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-five-cards select {
+  max-width: 140px;
+  padding: 4px 8px;
+}
+
+.admin-settings {
+  margin-top: 10px;
+}
+
+.admin-settings .advanced-row {
+  gap: 8px;
+}
+
+.mode-five .admin-player {
+  flex-wrap: wrap;
+}
+
+.mode-five .admin-nick {
+  flex-basis: 100%;
+  font-weight: 700;
 }
