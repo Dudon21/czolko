@@ -331,6 +331,33 @@
     </div>
   </div>
 
+  <button id="chat-toggle" class="btn chat-toggle hidden" title="Czat">💬<span id="chat-badge" class="chat-badge hidden"></span></button>
+  <div id="chat-peek" class="chat-peek hidden"></div>
+  <section id="chat-panel" class="card chat-panel hidden">
+    <header class="chat-header">
+      <h2>💬 Czat</h2>
+      <button id="chat-close" class="btn btn-small" title="Zamknij">✕</button>
+    </header>
+    <div id="chat-list" class="chat-list"></div>
+    <div id="chat-drop" class="chat-drop hidden">Upuść zdjęcie tutaj</div>
+    <footer class="chat-footer">
+      <div class="chat-to-row">
+        <label for="chat-to">Do:</label>
+        <select id="chat-to"></select>
+      </div>
+      <div id="chat-attachment" class="chat-attachment hidden">
+        <img id="chat-attachment-img" alt="">
+        <button id="chat-attachment-remove" class="btn btn-small btn-red" title="Usuń zdjęcie">✕</button>
+      </div>
+      <div class="chat-input-row">
+        <button id="chat-attach" class="btn btn-small" title="Dodaj zdjęcie (albo wklej Ctrl+V)">📎</button>
+        <input id="chat-file" type="file" accept="image/*" hidden>
+        <textarea id="chat-input" rows="1" maxlength="500" placeholder="Napisz do wszystkich…"></textarea>
+        <button id="chat-send" class="btn btn-primary btn-small" title="Wyślij (Enter)">➤</button>
+      </div>
+    </footer>
+  </section>
+  <div id="lightbox" class="lightbox hidden"><img id="lightbox-img" alt=""></div>
   <button id="music-toggle" class="btn music-toggle" title="Wyłącz muzykę w tle">🎵</button>
   <button id="sound-toggle" class="btn sound-toggle" title="Dźwięk: głośno / cicho / wyłączony">🔊</button>
   <button id="theme-toggle" class="btn theme-toggle" title="Tryb ciemny / jasny">🌙</button>

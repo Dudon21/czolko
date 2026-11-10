@@ -14,6 +14,8 @@ const MAX_ADMIN_ATTEMPTS = 5;
 const MAX_CAMERA_ATTEMPTS = 10;
 const REACTIONS = ["😂", "🔥", "👏", "😱", "🤦", "🤔", "💀", "❤️"];
 const REACTION_COOLDOWN_MS = 300;
+const CHAT_COOLDOWN_MS = 350;
+const CHAT_IMAGE_COOLDOWN_MS = 2500;
 const LIVEKIT_URL = process.env.LIVEKIT_URL || "";
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || "";
 const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || "";
@@ -76,6 +78,12 @@ registry.on("event", (room, text) => sendToRoom(room, "event", { text }));
 
 registry.on("fx", (room, payload) => sendToRoom(room, "fx", payload));
 
+registry.on("chat", (room, message) => {
+  for (const player of room.players) {
+    if (room.chatVisibleTo(player, message)) sendToPlayer(player, "chat:message", room.chatViewFor(player, message));
+  }
+});
+
 registry.on("avatar", (room, player) => sendToRoom(room, "avatar", { id: player.id, data: player.avatar }));
 
 registry.on("wordChanged", (room, player, reason, text) => sendToPlayer(player, "wordChanged", { reason, text }));
@@ -128,6 +136,7 @@ function attach(socket, room, player) {
   const avatars = {};
   for (const p of room.players) if (p.avatar) avatars[p.id] = p.avatar;
   socket.emit("avatars", avatars);
+  socket.emit("chat:history", room.chatHistoryFor(player));
   room.setConnected(player, true);
 }
 
@@ -277,6 +286,16 @@ io.on("connection", (socket) => {
   });
 
   handle(socket, "cameraLeave", () => leavePhone(socket));
+
+  handle(socket, "chat:send", ({ text, image, toId }) => {
+    const { room, player } = currentSession(socket);
+    const now = Date.now();
+    if (now - (socket.data.lastChat || 0) < CHAT_COOLDOWN_MS) fail("Zwolnij trochę 🙂");
+    if (image && now - (socket.data.lastChatImage || 0) < CHAT_IMAGE_COOLDOWN_MS) fail("Poczekaj chwilę przed kolejnym zdjęciem");
+    room.addChat(player, { text, image, toId });
+    socket.data.lastChat = now;
+    if (image) socket.data.lastChatImage = now;
+  });
 
   handle(socket, "react", ({ emoji }) => {
     const { room, player } = currentSession(socket);
