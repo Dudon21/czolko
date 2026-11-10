@@ -213,9 +213,9 @@ io.on("connection", (socket) => {
     room.setAvatar(player, data);
   });
 
-  handle(socket, "setWords", ({ words }) => {
+  handle(socket, "setWords", ({ words, starred }) => {
     const { room, player } = currentSession(socket);
-    room.setWords(player, words);
+    room.setWords(player, words, starred);
   });
 
   handle(socket, "setLimit", ({ limit }) => {

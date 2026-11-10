@@ -8,6 +8,7 @@ const GAME_AUTHOR = "Losowanie gry";
 const CUSTOM_WORD_CHANCE = 0.8;
 
 const WORDS_PER_PLAYER = 10;
+const MAX_STARRED = 2;
 const MAX_WORD_LENGTH = 40;
 const MAX_NICK_LENGTH = 16;
 const MAX_PLAYERS = 12;
@@ -173,6 +174,7 @@ class Room {
       color: COLORS.find((c) => !usedColors.has(c)) || COLORS[this.players.length % COLORS.length],
       avatar: null,
       words: [],
+      starred: [],
       wordsReady: false,
       connected: false,
       socketId: null,
@@ -240,7 +242,7 @@ class Room {
     this.emit("avatar", player);
   }
 
-  setWords(player, list) {
+  setWords(player, list, starredList) {
     this.requirePhase("lobby");
     if (!Array.isArray(list) || list.length !== WORDS_PER_PLAYER) fail(`Potrzeba dokładnie ${WORDS_PER_PLAYER} haseł`);
     const words = list.map((w) => cleanText(w, MAX_WORD_LENGTH));
@@ -251,7 +253,14 @@ class Room {
       if (seen.has(key)) fail(`Hasło „${word}” się powtarza`);
       seen.add(key);
     }
+    const starred = [...new Set(
+      (Array.isArray(starredList) ? starredList : [])
+        .map(Number)
+        .filter((index) => Number.isInteger(index) && index >= 0 && index < WORDS_PER_PLAYER)
+    )].sort((a, b) => a - b);
+    if (starred.length > MAX_STARRED) fail(`Gwiazdkę możesz dać maksymalnie ${MAX_STARRED} hasłom`);
     player.words = words;
+    player.starred = starred;
     if (!player.wordsReady) this.fx("ready", { playerId: player.id });
     player.wordsReady = true;
     this.changed();
@@ -433,10 +442,10 @@ class Room {
     for (const p of this.players) {
       p.helpsUsed = 0;
       p.stats = { guessed: 0, passes: 0, reveals: 0 };
-      for (const text of p.words) {
-        this.pool.push({ id: ++this.wordSeq, text, authorId: p.id, custom: !isListedWord(text) });
+      p.words.forEach((text, index) => {
+        this.pool.push({ id: ++this.wordSeq, text, authorId: p.id, custom: !isListedWord(text), starred: (p.starred || []).includes(index) });
         this.usedTexts.add(text.toLocaleLowerCase("pl"));
-      }
+      });
       p.score = 0;
       p.word = null;
     }
@@ -510,10 +519,12 @@ class Room {
       player.word = null;
       return false;
     }
+    const starred = candidates.filter((index) => this.pool[index].starred);
     const custom = candidates.filter((index) => this.pool[index].custom);
     const listed = candidates.filter((index) => !this.pool[index].custom);
     let group = candidates;
-    if (custom.length && listed.length) group = crypto.randomInt(1000) < CUSTOM_WORD_CHANCE * 1000 ? custom : listed;
+    if (starred.length) group = starred;
+    else if (custom.length && listed.length) group = crypto.randomInt(1000) < CUSTOM_WORD_CHANCE * 1000 ? custom : listed;
     const index = group[crypto.randomInt(group.length)];
     player.word = this.pool.splice(index, 1)[0];
     player.word.drawnAt = Date.now();
@@ -901,6 +912,7 @@ class Room {
         nick: viewer.nick,
         canManage: this.canManage(viewer),
         words: viewer.words,
+        starred: viewer.starred || [],
         wordsReady: viewer.wordsReady,
         cameraCode: viewer.cameraCode
       },

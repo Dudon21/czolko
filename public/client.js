@@ -1165,8 +1165,12 @@ const avatarEditor = (() => {
   };
 })();
 
+const MAX_STARRED = 2;
+
 const wordsForm = (() => {
   const inputs = [];
+  const starButtons = [];
+  let stars = new Set();
   let dirty = false;
 
   for (let i = 0; i < WORDS_PER_PLAYER; i++) {
@@ -1182,9 +1186,34 @@ const wordsForm = (() => {
     const reroll = el("button", "btn btn-small word-reroll", "🔄");
     reroll.title = "Wylosuj inne hasło w tym polu";
     reroll.onclick = () => rerollOne(i);
+    const star = el("button", "btn btn-small word-star", "☆");
+    star.title = "Gwiazdka: to hasło na pewno trafi do gry (max " + MAX_STARRED + ")";
+    star.onclick = () => toggleStar(i);
+    starButtons.push(star);
     const row = el("div", "word-row");
-    row.append(input, reroll);
+    row.append(star, input, reroll);
     $("word-inputs").appendChild(row);
+  }
+
+  function toggleStar(index) {
+    if (stars.has(index)) {
+      stars.delete(index);
+    } else {
+      if (stars.size >= MAX_STARRED) return toast("Gwiazdkę możesz dać maksymalnie " + MAX_STARRED + " hasłom", true);
+      stars.add(index);
+      motion.restart(starButtons[index], "star-pop");
+    }
+    dirty = true;
+    refresh();
+  }
+
+  function renderStars() {
+    starButtons.forEach((button, i) => {
+      const on = stars.has(i);
+      button.textContent = on ? "⭐" : "☆";
+      button.classList.toggle("selected", on);
+      inputs[i].classList.toggle("starred", on);
+    });
   }
 
   async function rerollOne(index) {
@@ -1214,9 +1243,10 @@ const wordsForm = (() => {
       if (duplicate) hasDuplicate = true;
       input.classList.toggle("invalid", Boolean(duplicate));
     });
+    renderStars();
     const filled = list.filter(Boolean).length;
     const ready = store.state && store.state.me.wordsReady;
-    let status = `${filled}/${WORDS_PER_PLAYER} haseł`;
+    let status = `${filled}/${WORDS_PER_PLAYER} haseł · ⭐ ${stars.size}/${MAX_STARRED}`;
     if (hasDuplicate) status = "Hasła nie mogą się powtarzać";
     else if (dirty) status += " · niezapisane zmiany";
     else if (ready) status = "✓ Hasła zapisane";
@@ -1242,7 +1272,7 @@ const wordsForm = (() => {
   $("btn-save-words").onclick = async () => {
     const { list, hasDuplicate } = refresh();
     if (hasDuplicate) return;
-    const response = await act("setWords", { words: list });
+    const response = await act("setWords", { words: list, starred: [...stars] });
     if (response.ok) {
       dirty = false;
       toast("Hasła zapisane");
@@ -1255,12 +1285,14 @@ const wordsForm = (() => {
       store.state.me.words.forEach((word, i) => {
         if (inputs[i]) inputs[i].value = word;
       });
+      stars = new Set(store.state.me.starred || []);
     }
     refresh();
   }
 
   function reset() {
     dirty = false;
+    stars = new Set();
     for (const input of inputs) input.value = "";
     refresh();
   }

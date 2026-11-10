@@ -2884,3 +2884,31 @@ input.invalid {
     border-radius: 22px 22px 0 0;
   }
 }
+
+.word-star {
+  min-width: 36px;
+  padding: 0 6px;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.word-star.selected {
+  background: var(--yellow);
+  color: #2b2100;
+  box-shadow: 0 0 0 3px rgba(255, 210, 63, 0.45), 0 4px 0 rgba(0, 0, 0, 0.25);
+}
+
+.word-input.starred {
+  border-color: var(--yellow);
+  box-shadow: 0 0 0 3px rgba(255, 210, 63, 0.35);
+  font-weight: 800;
+}
+
+.star-pop {
+  animation: star-pop 0.45s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+@keyframes star-pop {
+  0% { transform: scale(0.5) rotate(-40deg); }
+  100% { transform: none; }
+}
