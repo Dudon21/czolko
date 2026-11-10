@@ -30,7 +30,8 @@ const MAX_NICK_LENGTH = 16;
 const MAX_PLAYERS = 12;
 const DEFAULT_POINT_LIMIT = 5;
 const DEFAULT_HELP_LIMIT = 1;
-const MAX_HELP_LIMIT = 10;
+const MAX_HELP_LIMIT = 99;
+const UNLIMITED = 99;
 const MAX_TIME_LIMIT_MIN = 240;
 const MIN_POINT_LIMIT = 1;
 const MAX_POINT_LIMIT = 100;
@@ -469,16 +470,37 @@ class Room {
     return { awards, history, totalGuessed: guessed.length };
   }
 
+  used(player, key) {
+    return (player.stats && player.stats[key]) || 0;
+  }
+
+  usesLeft(player, key, limit) {
+    if (limit >= UNLIMITED) return null;
+    return Math.max(0, limit - this.used(player, key));
+  }
+
+  nextCost(used, free, cost) {
+    return used < free ? 0 : cost;
+  }
+
+  costText(cost) {
+    return cost ? `−${formatPoints(cost)}` : "za darmo";
+  }
+
   revealAuthor(player) {
     this.requireTurn(player);
     if (!player.word) fail("Nie masz teraz hasła");
     if (player.word.authorRevealed) fail("Autor jest już odkryty");
+    const limit = this.settings.authorLimit;
+    if (limit === 0) fail("Odkrywanie autora jest wyłączone");
+    if (this.usesLeft(player, "reveals", limit) === 0) fail("Wykorzystałeś już limit odkryć autora");
+    const cost = this.nextCost(this.used(player, "reveals"), this.settings.authorFree, this.settings.authorCost);
     const authorNick = this.authorName(player.word);
     player.word.authorRevealed = true;
-    player.score -= this.settings.authorCost;
+    player.score -= cost;
     this.stat(player, "reveals");
     this.fx("author", { playerId: player.id });
-    this.announce(`🕵️ ${player.nick} odkrywa autora hasła (−${formatPoints(this.settings.authorCost)}): ${authorNick}`);
+    this.announce(`🕵️ ${player.nick} odkrywa autora hasła (${this.costText(cost)}): ${authorNick}`);
     this.changed();
   }
 
@@ -487,7 +509,7 @@ class Room {
     const limit = Math.floor(Number(value));
     if (!Number.isFinite(limit) || limit < 0 || limit > MAX_HELP_LIMIT) fail(`Liczba pomocy musi być od 0 do ${MAX_HELP_LIMIT}`);
     this.helpLimit = limit;
-    this.announce(`Pomoce na gracza: ${limit}`);
+    this.announce(`Pomoce na gracza: ${limit >= UNLIMITED ? "bez limitu" : limit}`);
     this.changed();
   }
 
@@ -688,11 +710,12 @@ class Room {
     this.requireTurn(player);
     this.clearHelp();
     const word = player.word;
+    const penalty = this.nextCost(this.used(player, "passes"), this.settings.passFree, this.settings.passPenalty);
     this.record(player, "passed");
     this.stat(player, "passes");
-    player.score -= this.settings.passPenalty;
+    player.score -= penalty;
     player.word = null;
-    this.announce(`${player.nick} pasuje (−${formatPoints(this.settings.passPenalty)}). Hasło: ${word ? word.text : "?"}`);
+    this.announce(`${player.nick} pasuje (${this.costText(penalty)}). Hasło: ${word ? word.text : "?"}`);
     this.fx("pass", { playerId: player.id });
     this.emit("wordChanged", player, "passed", word ? word.text : "");
     if (!this.drawWord(player)) this.finish("pool");
@@ -725,12 +748,14 @@ class Room {
   requestHelp(player, helperId) {
     this.requireTurn(player);
     if (this.help) fail("Pomoc już trwa");
-    if (player.helpsUsed >= this.helpLimit) fail(this.helpLimit ? "Wykorzystałeś już wszystkie pomoce" : "Pomoce są wyłączone");
+    if (this.helpLimit === 0) fail("Pomoce są wyłączone");
+    if (this.helpLimit < UNLIMITED && player.helpsUsed >= this.helpLimit) fail("Wykorzystałeś już wszystkie pomoce");
     const helper = this.requireTarget(helperId);
     if (helper === player) fail("Wybierz innego gracza");
     if (!helper.connected) fail("Ten gracz jest offline");
+    const helpCost = this.nextCost(player.helpsUsed, this.settings.helpFree, this.settings.helpCost);
     player.helpsUsed += 1;
-    player.score -= this.settings.helpCost;
+    player.score -= helpCost;
     if (player.word) player.word.helps = (player.word.helps || 0) + 1;
     this.stopTurnTimer();
     const helpMs = this.settings.helpSeconds * 1000;
@@ -742,7 +767,7 @@ class Room {
     }, helpMs);
     this.help = help;
     this.fx("help", { playerId: player.id, helperId: helper.id });
-    const cost = this.settings.helpCost ? ` (−${formatPoints(this.settings.helpCost)})` : "";
+    const cost = helpCost ? ` (−${formatPoints(helpCost)})` : "";
     this.announce(`🆘 ${player.nick} prosi o pomoc${cost}: ${helper.nick}. ${this.settings.helpSeconds} sekund rozmowy!`);
     this.changed();
   }
@@ -1983,6 +2008,10 @@ class Room {
         words: viewer.words,
         starred: viewer.starred || [],
         wordsReady: viewer.wordsReady,
+        nextHelpCost: this.nextCost(viewer.helpsUsed || 0, this.settings.helpFree, this.settings.helpCost),
+        nextAuthorCost: this.nextCost(this.used(viewer, "reveals"), this.settings.authorFree, this.settings.authorCost),
+        nextPassCost: this.nextCost(this.used(viewer, "passes"), this.settings.passFree, this.settings.passPenalty),
+        authorLeft: this.usesLeft(viewer, "reveals", this.settings.authorLimit),
         liarWords: viewer.liarWords,
         liarReady: viewer.liarReady,
         cameraCode: viewer.cameraCode
@@ -1997,7 +2026,7 @@ class Room {
         liarReady: p.liarReady,
         canManage: this.canManage(p),
         hasPhone: p.phoneCount > 0,
-        helpsLeft: Math.max(0, this.helpLimit - p.helpsUsed),
+        helpsLeft: this.helpLimit >= UNLIMITED ? null : Math.max(0, this.helpLimit - p.helpsUsed),
         word: p.id !== viewer.id && p.word ? p.word.text : null,
         authorId: p.word && p.word.authorRevealed ? p.word.authorId : null,
         authorNick: p.word && p.word.authorRevealed ? this.authorName(p.word) : null

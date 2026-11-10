@@ -1750,12 +1750,17 @@ function renderTurn(s) {
   for (const id of ["btn-next", "btn-guess", "btn-pass"]) $(id).disabled = Boolean(s.vote);
   const me = findPlayer(s.me.id);
   const helpsLeft = me ? me.helpsLeft : 0;
+  const unlimitedHelp = helpsLeft === null;
+  const costLabel = (cost) => (cost ? "−" + fmtScore(cost) : "free");
   show($("btn-help"), s.helpLimit > 0);
-  $("btn-help").textContent = "🆘 Pomoc (" + helpsLeft + ")";
-  $("btn-help").disabled = Boolean(s.vote) || Boolean(s.help) || helpsLeft <= 0;
-  $("btn-author").disabled = Boolean(s.vote) || Boolean(me && me.authorNick);
-  $("btn-author").textContent = me && me.authorNick ? "🕵️ od " + me.authorNick : "🕵️ Autor (−" + fmtScore(cfg("authorCost", 0.5)) + ")";
-  $("btn-help").textContent = "🆘 Pomoc (" + helpsLeft + ")" + (cfg("helpCost", 0) ? " −" + fmtScore(cfg("helpCost", 0)) : "");
+  $("btn-help").textContent = "🆘 Pomoc (" + (unlimitedHelp ? "∞" : helpsLeft) + " · " + costLabel(s.me.nextHelpCost) + ")";
+  $("btn-help").disabled = Boolean(s.vote) || Boolean(s.help) || (!unlimitedHelp && helpsLeft <= 0);
+  const authorLeft = s.me.authorLeft;
+  show($("btn-author"), cfg("authorLimit", 99) > 0);
+  $("btn-author").disabled = Boolean(s.vote) || Boolean(me && me.authorNick) || authorLeft === 0;
+  $("btn-author").textContent = me && me.authorNick
+    ? "🕵️ od " + me.authorNick
+    : "🕵️ Autor (" + (authorLeft === null ? "" : authorLeft + " · ") + costLabel(s.me.nextAuthorCost) + ")";
   if (!myTurn || s.help || s.vote) show($("help-picker"), false);
   $("action-status").replaceChildren();
   if (myTurn && s.vote) {
@@ -1783,7 +1788,10 @@ function updateGameClock() {
   $("game-clock").classList.toggle("low", Boolean(store.gameDeadline) && seconds <= 60);
 }
 
-$("btn-author").onclick = () => ask("Odkryć, kto wpisał twoje hasło? Kosztuje " + fmtScore(cfg("authorCost", 0.5)) + " pkt.", () => act("revealAuthor"));
+$("btn-author").onclick = () => {
+  const cost = store.state ? store.state.me.nextAuthorCost : 0;
+  ask("Odkryć, kto wpisał twoje hasło? " + (cost ? "Kosztuje " + fmtScore(cost) + " pkt." : "Tym razem za darmo!"), () => act("revealAuthor"));
+};
 
 function renderHelp(s) {
   const help = s.help;
@@ -1809,7 +1817,7 @@ function updateHelpTimers() {
 function openHelpPicker() {
   const s = store.state;
   if (!s) return;
-  const helpCost = cfg("helpCost", 0);
+  const helpCost = s.me.nextHelpCost || 0;
   $("help-picker-text").textContent = "Kogo prosisz o pomoc? Macie " + cfg("helpSeconds", 60) + " sekund rozmowy." + (helpCost ? " Kosztuje " + fmtScore(helpCost) + " pkt." : "");
   const list = $("help-choices");
   list.replaceChildren();
@@ -1991,8 +1999,8 @@ document.addEventListener("keydown", (event) => nextKey.onKey(event), true);
 nextKey.render();
 $("btn-guess").onclick = () => act("guess");
 $("btn-pass").onclick = () => {
-  const penalty = cfg("passPenalty", 1);
-  ask(penalty ? "Spasować? Stracisz " + fmtScore(penalty) + " pkt." : "Spasować?", () => act("pass"));
+  const penalty = store.state ? store.state.me.nextPassCost : 0;
+  ask(penalty ? "Spasować? Stracisz " + fmtScore(penalty) + " pkt." : "Spasować? Ten pass jest za darmo.", () => act("pass"));
 };
 $("btn-vote-yes").onclick = () => act("vote", { approve: true });
 $("btn-vote-no").onclick = () => act("vote", { approve: false });

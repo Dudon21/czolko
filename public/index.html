@@ -115,8 +115,8 @@
           </div>
           <div class="row czolko-only">
             <label class="field field-inline">
-              <span>Pomoce na gracza</span>
-              <input id="help-limit-input" type="number" min="0" max="10">
+              <span>Pomoce na gracza (0 = brak, 99 = bez limitu)</span>
+              <input id="help-limit-input" type="number" min="0" max="99">
             </label>
             <button id="btn-set-help-limit" class="btn btn-small">Ustaw</button>
           </div>
@@ -417,7 +417,7 @@
     <div class="row czolko-only">
       <label class="field field-inline">
         <span>Pomoce</span>
-        <input id="admin-help-limit" type="number" min="0" max="10">
+        <input id="admin-help-limit" type="number" min="0" max="99">
       </label>
       <button class="btn btn-small" data-admin="helpLimit">Zmień</button>
     </div>
