@@ -2912,3 +2912,340 @@ input.invalid {
   0% { transform: scale(0.5) rotate(-40deg); }
   100% { transform: none; }
 }
+
+.mode-wave .czolko-only,
+.mode-wave .my-word,
+.mode-wave .author-tag {
+  display: none !important;
+}
+
+.mode-picker {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 2px dashed var(--card-border);
+}
+
+.mode-label {
+  font-weight: 800;
+}
+
+.mode-buttons {
+  margin: 6px 0;
+}
+
+.mode-btn {
+  flex: 1;
+  font-size: 1.05rem;
+}
+
+.mode-btn.selected {
+  background: var(--yellow);
+  color: #2b2100;
+  box-shadow: 0 0 0 3px rgba(255, 210, 63, 0.45), 0 4px 0 rgba(0, 0, 0, 0.25);
+}
+
+.mode-btn:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.mode-btn:disabled:not(.selected) {
+  opacity: 0.55;
+}
+
+.mode-desc {
+  margin: 4px 0 0;
+}
+
+.wave-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 10px;
+}
+
+.wave-stage.hidden {
+  display: none;
+}
+
+.wave-info {
+  font-size: 0.9rem;
+  font-weight: 800;
+  opacity: 0.7;
+}
+
+.wave-clue {
+  max-width: min(700px, 95%);
+  padding: 6px 26px;
+  border-radius: 18px;
+  background: var(--yellow);
+  color: #2b2100;
+  font-family: "Baloo 2", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(1.6rem, 4vw, 2.6rem);
+  line-height: 1.15;
+  text-align: center;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.25);
+}
+
+.wave-clue.hidden {
+  display: none;
+}
+
+.wave-dial-wrap {
+  width: min(560px, 100%);
+}
+
+.wave-dial {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  touch-action: none;
+  outline: none;
+}
+
+.wave-dial.interactive {
+  cursor: grab;
+}
+
+.wave-dial.interactive:active {
+  cursor: grabbing;
+}
+
+.wave-dial:focus-visible {
+  filter: drop-shadow(0 0 6px var(--yellow));
+}
+
+.wave-bg {
+  fill: #f3e9d2;
+  stroke: #2b2d42;
+  stroke-width: 6;
+}
+
+:root[data-theme="dark"] .wave-bg {
+  fill: #2c3048;
+  stroke: #12131c;
+}
+
+.wave-tick {
+  stroke: rgba(0, 0, 0, 0.3);
+  stroke-width: 2;
+}
+
+.wave-band-2 { fill: #ffd23f; }
+.wave-band-3 { fill: #ff9f1c; }
+.wave-band-4 { fill: #ff4d6d; }
+
+.wave-band-text {
+  fill: #2b2100;
+  font-family: "Baloo 2", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 17px;
+  pointer-events: none;
+}
+
+.wave-cover {
+  transform-origin: 200px 210px;
+  transition: transform 1.4s cubic-bezier(0.6, 0, 0.3, 1);
+}
+
+.wave-cover.open {
+  transform: rotate(-180deg);
+}
+
+.wave-cover.instant {
+  transition: none;
+}
+
+.wave-cover-disc {
+  fill: #3a0ca3;
+  stroke: #2b2d42;
+  stroke-width: 6;
+}
+
+.wave-cover-mark {
+  fill: rgba(255, 255, 255, 0.85);
+  font-family: "Baloo 2", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 90px;
+  pointer-events: none;
+}
+
+.wave-needle-line {
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.wave-needle.mine .wave-needle-line {
+  stroke-width: 9;
+}
+
+.wave-needle-knob {
+  stroke: #ffffff;
+  stroke-width: 3;
+}
+
+.wave-needle-text {
+  fill: #ffffff;
+  font-weight: 800;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.wave-hub {
+  fill: #2b2d42;
+  stroke: #ffffff;
+  stroke-width: 3;
+}
+
+.wave-ends {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  width: min(600px, 100%);
+  margin-top: -4px;
+  font-weight: 800;
+  font-size: clamp(1rem, 2.4vw, 1.35rem);
+}
+
+.wave-ends span:last-child {
+  text-align: right;
+}
+
+.wave-panel {
+  position: static;
+  width: min(640px, 100%);
+}
+
+.wave-box.hidden,
+.wave-wait.hidden {
+  display: none;
+}
+
+.wave-box input {
+  min-width: 0;
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 2px solid var(--card-border);
+  background: var(--input-bg, var(--card));
+  color: inherit;
+  font: inherit;
+  font-size: 1.05rem;
+}
+
+.wave-scale-inputs {
+  flex-wrap: nowrap;
+  margin-bottom: 8px;
+}
+
+.wave-arrow {
+  font-weight: 800;
+  font-size: 1.4rem;
+}
+
+.wave-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.wave-result {
+  --pc: #888;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 12px;
+  border-left: 6px solid var(--pc);
+  background: color-mix(in srgb, var(--pc) 14%, var(--card));
+  text-align: left;
+  animation: panel-in 0.4s ease-out both;
+  animation-delay: 1.6s;
+}
+
+.wave-result.bull {
+  box-shadow: 0 0 0 3px #ff4d6d;
+}
+
+.wave-result.psychic {
+  border-style: dashed;
+}
+
+.wave-result-nick {
+  font-weight: 800;
+}
+
+.wave-result-value {
+  font-size: 0.88rem;
+  opacity: 0.8;
+}
+
+.wave-result-points {
+  font-weight: 800;
+  font-size: 1.2rem;
+}
+
+.players-grid.wave-mode {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 150px));
+  gap: 40px 16px;
+  padding-top: 40px;
+  flex: 0;
+}
+
+.players-grid.wave-mode .word-label {
+  font-size: 0.95rem;
+  padding: 1px 10px;
+  border-width: 3px;
+  bottom: -18px;
+  white-space: nowrap;
+}
+
+.players-grid.wave-mode .nick-bar {
+  font-size: 0.72rem;
+  top: 8px;
+  left: 8px;
+}
+
+.fx-clue {
+  font-size: clamp(2.2rem, 7vw, 5rem);
+}
+
+@media (max-width: 600px) {
+  .wave-scale-inputs {
+    flex-wrap: wrap;
+  }
+
+  .wave-arrow {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave-cover {
+    transition-duration: 0.01s;
+  }
+
+  .wave-result {
+    animation: none;
+  }
+}
+
+.players-grid.wave-mode .ptile.me .word-label {
+  letter-spacing: normal;
+  border-style: solid;
+}
+
+.players-grid.wave-mode .word-label {
+  max-width: none;
+}
+
+.wave-dial,
+.wave-dial * {
+  user-select: none;
+  -webkit-user-select: none;
+}

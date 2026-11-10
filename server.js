@@ -306,6 +306,42 @@ io.on("connection", (socket) => {
     sendToRoom(room, "fx", { type: "reaction", playerId: player.id, emoji });
   });
 
+  handle(socket, "setMode", ({ mode }) => {
+    const { room, player } = currentSession(socket);
+    room.setMode(player, mode);
+  });
+
+  handle(socket, "wave:clue", ({ clue }) => {
+    const { room, player } = currentSession(socket);
+    room.waveSetClue(player, clue);
+  });
+
+  handle(socket, "wave:scale", ({ left, right }) => {
+    const { room, player } = currentSession(socket);
+    room.waveSetScale(player, left, right);
+  });
+
+  handle(socket, "wave:suggest", () => {
+    const { room } = currentSession(socket);
+    return { scale: room.suggestScale() };
+  });
+
+  handle(socket, "wave:move", ({ value }) => {
+    const { room, player } = currentSession(socket);
+    room.waveMove(player, value);
+  });
+
+  handle(socket, "wave:lock", ({ value, locked }) => {
+    const { room, player } = currentSession(socket);
+    room.waveLock(player, value, locked !== false);
+  });
+
+  handle(socket, "wave:continue", () => {
+    const { room, player } = currentSession(socket);
+    room.waveContinue(player, false);
+    room.changed();
+  });
+
   handle(socket, "startGame", () => {
     const { room, player } = currentSession(socket);
     room.start(player);

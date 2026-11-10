@@ -80,6 +80,14 @@
 
         <div class="card">
           <h2>Ustawienia</h2>
+          <div class="mode-picker">
+            <span class="mode-label">Tryb gry</span>
+            <div class="row mode-buttons">
+              <button class="btn mode-btn" data-mode="czolko">🙈 Czółko</button>
+              <button class="btn mode-btn" data-mode="wskazowka">🔮 Wskazówka</button>
+            </div>
+            <p id="mode-desc" class="status mode-desc"></p>
+          </div>
           <div class="row">
             <label class="field field-inline">
               <span>Limit punktów</span>
@@ -87,7 +95,7 @@
             </label>
             <button id="btn-set-limit" class="btn btn-small">Ustaw</button>
           </div>
-          <div class="row">
+          <div class="row czolko-only">
             <label class="field field-inline">
               <span>Pomoce na gracza</span>
               <input id="help-limit-input" type="number" min="0" max="10">
@@ -149,7 +157,7 @@
         </div>
       </div>
 
-      <div class="card">
+      <div id="words-card" class="card czolko-only">
         <h2>Twoje hasła</h2>
         <div id="word-inputs" class="word-inputs"></div>
         <div class="row">
@@ -202,6 +210,47 @@
           <span class="help-timer"></span>
           <button id="btn-help-end" class="btn btn-small btn-red">Zakończ pomoc</button>
         </div>
+        <div id="wave-stage" class="wave-stage hidden">
+          <div id="wave-info" class="wave-info"></div>
+          <div id="wave-clue" class="wave-clue hidden"></div>
+          <div class="wave-dial-wrap">
+            <svg id="wave-dial" class="wave-dial" viewBox="0 0 400 222" tabindex="0" aria-label="Tarcza"></svg>
+          </div>
+          <div class="wave-ends"><span id="wave-left"></span><span id="wave-right"></span></div>
+          <div id="wave-panel" class="bottom-panel wave-panel">
+            <div id="wave-scale-form" class="wave-box hidden">
+              <p class="panel-status">Wymyśl skalę od… do…, np. „zły kierowca” ↔ „dobry kierowca”</p>
+              <div class="row row-center wave-scale-inputs">
+                <input id="wave-left-input" maxlength="30" autocomplete="off" placeholder="od… (lewa)">
+                <span class="wave-arrow">↔</span>
+                <input id="wave-right-input" maxlength="30" autocomplete="off" placeholder="do… (prawa)">
+              </div>
+              <div class="row row-center">
+                <button id="wave-suggest" class="btn">🎲 Podsuń mi</button>
+                <button id="wave-scale-submit" class="btn btn-green btn-big">✔ Gotowe</button>
+              </div>
+            </div>
+            <div id="wave-clue-form" class="wave-box hidden">
+              <p class="panel-status">Widzisz cel 🎯. Wpisz jedną podpowiedź, żeby inni trafili jak najbliżej</p>
+              <div class="row row-center">
+                <input id="wave-clue-input" maxlength="60" autocomplete="off" placeholder="np. taksówkarz w Rzymie">
+                <button id="wave-clue-submit" class="btn btn-green btn-big">Podpowiedz</button>
+              </div>
+            </div>
+            <div id="wave-guess-box" class="wave-box hidden">
+              <p id="wave-guess-status" class="panel-status"></p>
+              <button id="wave-lock" class="btn btn-big btn-green">✔ Zatwierdź</button>
+            </div>
+            <div id="wave-reveal-box" class="wave-box hidden">
+              <div id="wave-results" class="wave-results"></div>
+              <div class="row row-center">
+                <button id="wave-continue" class="btn btn-big btn-primary">Dalej ▶</button>
+                <span class="panel-status">automatycznie za <span class="turn-timer"></span></span>
+              </div>
+            </div>
+            <p id="wave-wait" class="panel-status wave-wait hidden"></p>
+          </div>
+        </div>
         <div id="players-grid" class="players-grid"></div>
 
         <div id="action-bar" class="bottom-panel action-bar hidden">
@@ -252,7 +301,7 @@
         <div id="awards" class="awards"></div>
       </div>
       <div id="history-box" class="history-box hidden">
-        <h2>Kto miał jakie hasła</h2>
+        <h2 id="history-title">Kto miał jakie hasła</h2>
         <div id="history" class="history"></div>
       </div>
       <button id="btn-to-lobby" class="btn btn-primary btn-wide">Wróć do lobby</button>
@@ -275,7 +324,7 @@
       <button class="btn btn-small btn-red" data-admin="end">Zakończ grę</button>
       <button class="btn btn-small" data-admin="lobby">Do lobby</button>
     </div>
-    <div class="row admin-vote">
+    <div class="row admin-vote czolko-only">
       <span>Głosowanie:</span>
       <button class="btn btn-small btn-green" data-admin="approve">Zatwierdź</button>
       <button class="btn btn-small btn-red" data-admin="reject">Odrzuć</button>
@@ -287,7 +336,7 @@
       </label>
       <button class="btn btn-small" data-admin="limit">Zmień</button>
     </div>
-    <div class="row">
+    <div class="row czolko-only">
       <label class="field field-inline">
         <span>Pomoce</span>
         <input id="admin-help-limit" type="number" min="0" max="10">

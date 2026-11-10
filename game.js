@@ -1,6 +1,18 @@
 const crypto = require("crypto");
 const { EventEmitter } = require("events");
 const { isListedWord, randomWords } = require("./words");
+const { randomScale } = require("./scales");
+
+const MODES = ["czolko", "wskazowka"];
+const MODE_DEFAULT_LIMIT = { czolko: 5, wskazowka: 20 };
+const WAVE_SCALE_MS = 60000;
+const WAVE_MAX_SCALE_SIDE = 30;
+const WAVE_CLUE_MS = 60000;
+const WAVE_GUESS_MS = 45000;
+const WAVE_REVEAL_MS = 15000;
+const WAVE_MAX_CLUE = 60;
+const WAVE_BANDS = [[4, 4], [11, 3], [18, 2]];
+const WAVE_PSYCHIC_MAX = 3;
 
 const REFILL_SIZE = 10;
 const GAME_AUTHOR = "Losowanie gry";
@@ -109,6 +121,14 @@ class Room {
     this.wordSeq = 0;
     this.chat = [];
     this.chatSeq = 0;
+    this.mode = "czolko";
+    this.wave = null;
+    this.waveRound = 0;
+    this.waveHistory = [];
+    this.usedScales = new Set();
+    this.waveScale = null;
+    this.waveQueue = [];
+    this.waveSet = 0;
     this.cleanupTimer = null;
     this.expiresAt = Date.now() + LOBBY_TIMEOUT_MS;
     this.expiryTimer = null;
@@ -195,7 +215,8 @@ class Room {
       if (this.help && (this.help.askerId === player.id || this.help.helperId === player.id)) {
         this.endHelpNow(`Pomoc przerwana, ${player.nick} opuszcza grę`);
       }
-      if (this.activeId === player.id) this.advanceTurn();
+      if (this.mode === "wskazowka") this.waveRemovePlayer(player);
+      else if (this.activeId === player.id) this.advanceTurn();
       if (player.word) this.pool.push(player.word);
       player.word = null;
     }
@@ -212,7 +233,10 @@ class Room {
 
     if (this.phase === "game") {
       if (this.players.length < 2) this.finish("players");
-      else this.evaluateVote();
+      else {
+        this.evaluateVote();
+        this.evaluateWave();
+      }
     }
     this.hub.updatePresence(this);
     this.changed();
@@ -222,6 +246,7 @@ class Room {
     player.connected = connected;
     if (!connected) player.socketId = null;
     this.evaluateVote();
+    this.evaluateWave();
     this.hub.updatePresence(this);
     this.changed();
   }
@@ -343,6 +368,7 @@ class Room {
   }
 
   summary() {
+    if (this.mode === "wskazowka") return this.waveSummary();
     const awards = [];
     const seconds = (ms) => Math.max(1, Math.round(ms / 1000));
     const time = (ms) => {
@@ -423,10 +449,31 @@ class Room {
     this.changed();
   }
 
+  setMode(player, mode) {
+    this.requireManager(player);
+    this.requirePhase("lobby");
+    if (!MODES.includes(mode)) fail("Nieznany tryb gry");
+    if (mode === this.mode) return;
+    const previous = this.mode;
+    this.mode = mode;
+    if (this.pointLimit === MODE_DEFAULT_LIMIT[previous]) this.pointLimit = MODE_DEFAULT_LIMIT[mode];
+    this.announce(mode === "wskazowka" ? "Tryb gry: 🔮 Wskazówka" : "Tryb gry: 🙈 Czółko");
+    this.changed();
+  }
+
+  requireMode(mode) {
+    if (this.mode !== mode) fail("To nie działa w tym trybie gry");
+  }
+
   start(player) {
     this.requireManager(player);
     this.requirePhase("lobby");
     if (this.players.length < 2) fail("Potrzeba co najmniej 2 graczy");
+    if (this.mode === "wskazowka") {
+      this.beginGame();
+      this.changed();
+      return;
+    }
     const missing = this.players.filter((p) => !p.wordsReady).map((p) => p.nick);
     if (missing.length) fail(`Brakuje haseł od: ${missing.join(", ")}`);
     this.beginGame();
@@ -436,6 +483,8 @@ class Room {
   beginGame() {
     this.clearVote();
     this.clearHelp();
+    this.clearWave();
+    if (this.mode === "wskazowka") return this.beginWave();
     this.pool = [];
     this.history = [];
     this.usedTexts = new Set();
@@ -474,7 +523,7 @@ class Room {
 
   restartTurnTimer() {
     this.stopTurnTimer();
-    if (this.phase !== "game" || this.vote || this.help || !this.activeId) return;
+    if (this.mode !== "czolko" || this.phase !== "game" || this.vote || this.help || !this.activeId) return;
     const activeId = this.activeId;
     this.turnEndsAt = Date.now() + TURN_TIME_MS;
     this.turnTimer = setTimeout(() => {
@@ -534,6 +583,7 @@ class Room {
   }
 
   advanceTurn() {
+    if (this.mode === "wskazowka") return this.nextWaveRound();
     this.clearHelp();
     const count = this.players.length;
     if (!count) {
@@ -557,6 +607,7 @@ class Room {
 
   requireTurn(player) {
     this.requirePhase("game");
+    this.requireMode("czolko");
     if (this.activeId !== player.id) fail("To nie twoja tura");
     if (this.vote) fail("Trwa głosowanie");
   }
@@ -721,8 +772,9 @@ class Room {
     this.stopGameTimer();
     this.clearVote();
     this.clearHelp();
+    this.clearWave();
     this.stopTurnTimer();
-    if (this.phase === "game") for (const p of this.players) this.record(p, "unfinished");
+    if (this.phase === "game" && this.mode === "czolko") for (const p of this.players) this.record(p, "unfinished");
     const wasPlaying = this.phase === "game";
     this.phase = "end";
     this.endReason = reason;
@@ -735,6 +787,7 @@ class Room {
     this.requirePhase("game", "end");
     this.clearVote();
     this.clearHelp();
+    this.clearWave();
     this.stopTurnTimer();
     this.phase = "lobby";
     this.pool = [];
@@ -753,6 +806,12 @@ class Room {
   adminForceNext(admin) {
     this.requireAdmin(admin);
     this.requirePhase("game");
+    if (this.mode === "wskazowka") {
+      this.announce("Host przechodzi do następnej rundy");
+      this.waveContinue(null, true);
+      this.changed();
+      return;
+    }
     this.cancelVote("Głosowanie przerwane przez admina");
     this.advanceTurn();
     this.announce("Admin przekazuje turę dalej");
@@ -762,6 +821,7 @@ class Room {
   adminResolveVote(admin, approve) {
     this.requireAdmin(admin);
     this.requirePhase("game");
+    this.requireMode("czolko");
     if (!this.vote) fail("Nie ma teraz głosowania");
     if (approve) this.succeedGuess();
     else this.cancelVote("Admin odrzuca głosowanie");
@@ -790,6 +850,7 @@ class Room {
   adminRerollWord(admin, playerId) {
     this.requireAdmin(admin);
     this.requirePhase("game");
+    this.requireMode("czolko");
     const target = this.requireTarget(playerId);
     if (!this.hasWordFor(target) && !this.refillPool()) fail("Nie ma już żadnych haseł do wylosowania");
     if (this.vote && this.vote.guesserId === target.id) this.cancelVote("Głosowanie anulowane, nowe hasło");
@@ -824,6 +885,382 @@ class Room {
     if (this.players.length < 2) fail("Potrzeba co najmniej 2 graczy");
     this.beginGame();
     this.changed();
+  }
+
+  beginWave() {
+    this.pool = [];
+    this.history = [];
+    this.waveHistory = [];
+    this.waveRound = 0;
+    this.waveSet = 0;
+    this.waveScale = null;
+    this.waveQueue = [];
+    this.usedScales = new Set();
+    for (const p of this.players) {
+      p.score = 0;
+      p.word = null;
+      p.helpsUsed = 0;
+      p.stats = { guessed: 0, passes: 0, reveals: 0 };
+    }
+    this.phase = "game";
+    this.endReason = null;
+    this.gameStartedAt = Date.now();
+    this.scheduleGameEnd();
+    this.hub.scheduleExpiry(this);
+    const starters = this.players.filter((p) => p.connected);
+    const list = starters.length ? starters : this.players;
+    const starter = list[crypto.randomInt(list.length)];
+    this.fx("start", { playerId: starter.id });
+    this.announce(`🔮 Wskazówka! Pierwszą skalę wymyśla ${starter.nick}`);
+    this.startScaleStage(starter);
+  }
+
+  startScaleStage(author) {
+    this.clearWave();
+    this.waveSet += 1;
+    this.waveScale = null;
+    this.waveQueue = [];
+    this.activeId = author.id;
+    const wave = {
+      round: this.waveRound,
+      set: this.waveSet,
+      stage: "scale",
+      scaleAuthorId: author.id,
+      psychicId: null,
+      scale: null,
+      target: null,
+      clue: null,
+      guesses: new Map(),
+      locked: new Set(),
+      results: null,
+      psychicPoints: 0,
+      endsAt: Date.now() + WAVE_SCALE_MS,
+      totalMs: WAVE_SCALE_MS,
+      timer: null
+    };
+    wave.timer = setTimeout(() => {
+      if (this.wave !== wave || wave.stage !== "scale") return;
+      const scale = randomScale(this.usedScales);
+      this.announce(`Czas minął! Losuję skalę: ${scale.left} ↔ ${scale.right}`);
+      this.applyScale(author, scale);
+      this.changed();
+    }, WAVE_SCALE_MS);
+    this.wave = wave;
+    this.fx("turn", { playerId: author.id });
+  }
+
+  suggestScale() {
+    return randomScale(this.usedScales);
+  }
+
+  waveSetScale(player, rawLeft, rawRight) {
+    this.requireWaveStage("scale");
+    if (this.wave.scaleAuthorId !== player.id) fail("Teraz skalę wymyśla ktoś inny");
+    const left = cleanText(rawLeft, WAVE_MAX_SCALE_SIDE);
+    const right = cleanText(rawRight, WAVE_MAX_SCALE_SIDE);
+    if (!left || !right) fail("Wpisz oba końce skali");
+    if (textKey(left) === textKey(right)) fail("Końce skali muszą się różnić");
+    this.announce(`✍️ ${player.nick} wymyśla skalę: ${left} ↔ ${right}`);
+    this.applyScale(player, { left, right });
+    this.changed();
+  }
+
+  applyScale(author, scale) {
+    this.waveScale = { left: scale.left, right: scale.right, authorId: author.id, authorNick: author.nick };
+    const count = this.players.length;
+    const start = Math.max(0, this.players.findIndex((p) => p.id === author.id));
+    this.waveQueue = [];
+    for (let i = 0; i < count; i++) this.waveQueue.push(this.players[(start + i) % count].id);
+    this.fx("waveScale", { playerId: author.id });
+    this.nextWaveRound();
+  }
+
+  randomTarget() {
+    return 3 + crypto.randomInt(95);
+  }
+
+  startWaveRound(psychic) {
+    this.clearWave();
+    this.waveRound += 1;
+    this.activeId = psychic.id;
+    const wave = {
+      round: this.waveRound,
+      set: this.waveSet,
+      scaleAuthorId: this.waveScale.authorId,
+      psychicId: psychic.id,
+      scale: { left: this.waveScale.left, right: this.waveScale.right },
+      target: this.randomTarget(),
+      clue: null,
+      stage: "clue",
+      guesses: new Map(),
+      locked: new Set(),
+      results: null,
+      psychicPoints: 0,
+      endsAt: Date.now() + WAVE_CLUE_MS,
+      totalMs: WAVE_CLUE_MS,
+      timer: null
+    };
+    wave.timer = setTimeout(() => {
+      if (this.wave !== wave || wave.stage !== "clue") return;
+      this.announce(`Czas minął! ${psychic.nick} nie podał(a) podpowiedzi`);
+      this.fx("timeout", { playerId: psychic.id });
+      this.nextWaveRound();
+      this.changed();
+    }, WAVE_CLUE_MS);
+    this.wave = wave;
+    this.fx("turn", { playerId: psychic.id });
+  }
+
+  nextWaveRound() {
+    const count = this.players.length;
+    if (!count || this.phase !== "game") return;
+    while (this.waveScale && this.waveQueue.length) {
+      const candidate = this.getPlayer(this.waveQueue.shift());
+      if (candidate && candidate.connected) return this.startWaveRound(candidate);
+    }
+    const lastAuthor = this.waveScale ? this.waveScale.authorId : this.activeId;
+    const start = Math.max(0, this.players.findIndex((p) => p.id === lastAuthor));
+    let next = null;
+    for (let i = 1; i <= count; i++) {
+      const candidate = this.players[(start + i) % count];
+      if (candidate.connected) {
+        next = candidate;
+        break;
+      }
+    }
+    if (!next) next = this.players[(start + 1) % count];
+    this.startScaleStage(next);
+  }
+
+  clearWave() {
+    if (this.wave) clearTimeout(this.wave.timer);
+    this.wave = null;
+  }
+
+  requireWaveStage(stage) {
+    this.requirePhase("game");
+    this.requireMode("wskazowka");
+    if (!this.wave || this.wave.stage !== stage) fail("To teraz niedostępne");
+  }
+
+  waveSetClue(player, rawClue) {
+    this.requireWaveStage("clue");
+    const wave = this.wave;
+    if (wave.psychicId !== player.id) fail("Teraz podpowiada ktoś inny");
+    const clue = cleanText(rawClue, WAVE_MAX_CLUE);
+    if (!clue) fail("Wpisz podpowiedź");
+    clearTimeout(wave.timer);
+    wave.clue = clue;
+    wave.stage = "guess";
+    wave.endsAt = Date.now() + WAVE_GUESS_MS;
+    wave.totalMs = WAVE_GUESS_MS;
+    wave.timer = setTimeout(() => {
+      if (this.wave !== wave || wave.stage !== "guess") return;
+      this.waveReveal();
+      this.changed();
+    }, WAVE_GUESS_MS);
+    this.fx("waveClue", { playerId: player.id });
+    this.announce(`🔮 ${player.nick}: „${clue}”. Ustawiajcie wskazówki!`);
+    this.changed();
+  }
+
+  cleanDial(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) fail("Nieprawidłowa pozycja");
+    return Math.round(Math.max(0, Math.min(100, number)) * 10) / 10;
+  }
+
+  waveMove(player, value) {
+    this.requireWaveStage("guess");
+    const wave = this.wave;
+    if (wave.psychicId === player.id) fail("Podpowiadający nie zgaduje");
+    if (wave.locked.has(player.id)) return;
+    const first = !wave.guesses.has(player.id);
+    wave.guesses.set(player.id, this.cleanDial(value));
+    if (first) this.changed();
+  }
+
+  waveLock(player, value, locked) {
+    this.requireWaveStage("guess");
+    const wave = this.wave;
+    if (wave.psychicId === player.id) fail("Podpowiadający nie zgaduje");
+    if (locked) {
+      if (value !== undefined && value !== null) wave.guesses.set(player.id, this.cleanDial(value));
+      if (!wave.guesses.has(player.id)) fail("Najpierw ustaw wskazówkę");
+      wave.locked.add(player.id);
+    } else {
+      wave.locked.delete(player.id);
+    }
+    this.evaluateWave();
+    this.changed();
+  }
+
+  waveGuessers() {
+    if (!this.wave) return [];
+    return this.players.filter((p) => p.connected && p.id !== this.wave.psychicId);
+  }
+
+  evaluateWave() {
+    const wave = this.wave;
+    if (!wave || this.phase !== "game" || this.mode !== "wskazowka" || wave.stage !== "guess") return;
+    const guessers = this.waveGuessers();
+    if (guessers.length && guessers.every((p) => wave.locked.has(p.id))) this.waveReveal();
+  }
+
+  wavePoints(value, target) {
+    if (value === null || value === undefined) return 0;
+    const distance = Math.abs(value - target);
+    for (const [limit, points] of WAVE_BANDS) if (distance <= limit) return points;
+    return 0;
+  }
+
+  waveReveal() {
+    const wave = this.wave;
+    if (!wave || wave.stage !== "guess") return;
+    clearTimeout(wave.timer);
+    const results = [];
+    for (const p of this.players) {
+      if (p.id === wave.psychicId) continue;
+      const value = wave.guesses.has(p.id) ? wave.guesses.get(p.id) : null;
+      const points = this.wavePoints(value, wave.target);
+      p.score += points;
+      results.push({ id: p.id, nick: p.nick, color: p.color, value, points, distance: value === null ? null : Math.abs(value - wave.target) });
+    }
+    const psychic = this.getPlayer(wave.psychicId);
+    const psychicPoints = Math.min(WAVE_PSYCHIC_MAX, results.filter((r) => r.points >= 3).length);
+    if (psychic) psychic.score += psychicPoints;
+    wave.results = results.sort((a, b) => b.points - a.points);
+    wave.psychicPoints = psychicPoints;
+    wave.stage = "reveal";
+    wave.endsAt = Date.now() + WAVE_REVEAL_MS;
+    wave.totalMs = WAVE_REVEAL_MS;
+    this.waveHistory.push({
+      round: wave.round,
+      set: wave.set,
+      scaleAuthorNick: this.waveScale ? this.waveScale.authorNick : "?",
+      psychicId: wave.psychicId,
+      psychicNick: psychic ? psychic.nick : "?",
+      left: wave.scale.left,
+      right: wave.scale.right,
+      clue: wave.clue,
+      target: wave.target,
+      psychicPoints,
+      results: wave.results.map((r) => ({ ...r }))
+    });
+    wave.timer = setTimeout(() => {
+      if (this.wave !== wave) return;
+      this.waveContinue(null, true);
+      this.changed();
+    }, WAVE_REVEAL_MS);
+    const best = wave.results[0];
+    this.fx("waveReveal", { playerId: wave.psychicId, bullseye: Boolean(best && best.points === 4) });
+    this.announce(`🎯 Odsłona! Cel: ${Math.round(wave.target)}. ${psychic ? psychic.nick : "Podpowiadający"} +${psychicPoints}`);
+  }
+
+  waveContinue(player, force) {
+    this.requirePhase("game");
+    this.requireMode("wskazowka");
+    const wave = this.wave;
+    if (!force) {
+      if (!wave || wave.stage !== "reveal") fail("To teraz niedostępne");
+      if (player.id !== wave.psychicId && !this.canManage(player)) fail("Dalej może kliknąć podpowiadający albo host");
+    }
+    if (this.players.some((p) => this.reachedLimit(p))) {
+      this.finish("limit");
+      return;
+    }
+    this.nextWaveRound();
+  }
+
+  waveRemovePlayer(player) {
+    const wave = this.wave;
+    this.waveQueue = this.waveQueue.filter((id) => id !== player.id);
+    if (!wave) return;
+    wave.guesses.delete(player.id);
+    wave.locked.delete(player.id);
+    if (wave.stage === "scale" && wave.scaleAuthorId === player.id) {
+      this.announce(`${player.nick} wychodzi, skalę wymyśli ktoś inny`);
+      this.nextWaveRound();
+    } else if (wave.psychicId === player.id && wave.stage !== "reveal") {
+      this.announce(`${player.nick} wychodzi w trakcie podpowiadania`);
+      this.nextWaveRound();
+    }
+  }
+
+  waveView(viewer) {
+    const wave = this.wave;
+    if (this.mode !== "wskazowka" || !wave) return null;
+    const isPsychic = viewer.id === wave.psychicId;
+    const revealed = wave.stage === "reveal";
+    const queueTotal = this.players.length;
+    const turnsLeft = this.waveQueue.filter((id) => this.getPlayer(id)).length;
+    return {
+      round: wave.round,
+      set: wave.set,
+      scaleAuthorId: wave.scaleAuthorId,
+      turnOnScale: wave.stage === "scale" ? 0 : Math.max(1, queueTotal - turnsLeft),
+      turnsOnScale: queueTotal,
+      psychicId: wave.psychicId,
+      left: wave.scale ? wave.scale.left : null,
+      right: wave.scale ? wave.scale.right : null,
+      clue: wave.clue,
+      stage: wave.stage,
+      target: isPsychic || revealed ? wave.target : null,
+      myGuess: wave.guesses.has(viewer.id) ? wave.guesses.get(viewer.id) : null,
+      myLocked: wave.locked.has(viewer.id),
+      locked: [...wave.locked],
+      touched: [...wave.guesses.keys()],
+      guessers: this.waveGuessers().length,
+      results: revealed ? wave.results : null,
+      psychicPoints: revealed ? wave.psychicPoints : 0,
+      remainingMs: Math.max(0, wave.endsAt - Date.now()),
+      totalMs: wave.totalMs
+    };
+  }
+
+  waveSummary() {
+    const awards = [];
+    const hits = this.waveHistory.flatMap((round) => round.results.filter((r) => r.value !== null).map((r) => ({ ...r, round })));
+    if (hits.length) {
+      const sniper = hits.reduce((a, b) => (b.distance < a.distance ? b : a));
+      awards.push({ icon: "🎯", title: "Snajper", text: `${sniper.nick} trafił(a) najbliżej celu przy „${sniper.round.clue}”` });
+      const wild = hits.reduce((a, b) => (b.distance > a.distance ? b : a));
+      if (wild !== sniper && wild.distance > 25) {
+        awards.push({ icon: "🚀", title: "Strzał w kosmos", text: `${wild.nick} pomylił(a) się najbardziej przy „${wild.round.clue}”` });
+      }
+    }
+    const psychics = new Map();
+    for (const round of this.waveHistory) {
+      const entry = psychics.get(round.psychicId) || { nick: round.psychicNick, points: 0, rounds: 0 };
+      entry.points += round.psychicPoints;
+      entry.rounds += 1;
+      psychics.set(round.psychicId, entry);
+    }
+    const telepath = [...psychics.values()].sort((a, b) => b.points - a.points)[0];
+    if (telepath && telepath.points > 0) {
+      awards.push({ icon: "🔮", title: "Telepata", text: `${telepath.nick}: ${telepath.points} pkt za podpowiedzi` });
+    }
+    const bullseyes = new Map();
+    for (const hit of hits) if (hit.points === 4) bullseyes.set(hit.nick, (bullseyes.get(hit.nick) || 0) + 1);
+    const bestEye = [...bullseyes.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (bestEye) awards.push({ icon: "👁️", title: "Sokole oko", text: `${bestEye[0]}: ${bestEye[1]}× w sam środek` });
+    return {
+      mode: "wskazowka",
+      awards,
+      history: [],
+      rounds: this.waveHistory.map((round) => ({
+        set: round.set,
+        scaleAuthorNick: round.scaleAuthorNick,
+        psychicNick: round.psychicNick,
+        left: round.left,
+        right: round.right,
+        clue: round.clue,
+        target: round.target,
+        psychicPoints: round.psychicPoints,
+        results: round.results.map((r) => ({ nick: r.nick, color: r.color, value: r.value, points: r.points }))
+      })),
+      totalGuessed: 0
+    };
   }
 
   addChat(player, payload) {
@@ -895,6 +1332,8 @@ class Room {
     return {
       code: this.code,
       phase: this.phase,
+      mode: this.mode,
+      wave: this.waveView(viewer),
       pointLimit: this.pointLimit,
       helpLimit: this.helpLimit,
       timeLimitMin: this.timeLimitMin,
@@ -903,7 +1342,10 @@ class Room {
         ? { askerId: this.help.askerId, helperId: this.help.helperId, remainingMs: Math.max(0, this.help.endsAt - Date.now()) }
         : null,
       activeId: this.activeId,
-      turnRemainingMs: this.turnEndsAt ? Math.max(0, this.turnEndsAt - Date.now()) : null,
+      turnRemainingMs: this.mode === "wskazowka"
+        ? (this.wave && this.phase === "game" ? Math.max(0, this.wave.endsAt - Date.now()) : null)
+        : this.turnEndsAt ? Math.max(0, this.turnEndsAt - Date.now()) : null,
+      turnTotalMs: this.mode === "wskazowka" && this.wave ? this.wave.totalMs : TURN_TIME_MS,
       endReason: this.endReason,
       roomRemainingMs: this.phase === "lobby" ? Math.max(0, this.expiresAt - Date.now()) : null,
       poolSize: this.pool.length,
@@ -1029,6 +1471,7 @@ class Registry extends EventEmitter {
     clearTimeout(room.warningTimer);
     room.clearVote();
     room.clearHelp();
+    room.clearWave();
     room.stopTurnTimer();
     room.stopGameTimer();
     this.rooms.delete(room.code);
