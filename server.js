@@ -358,9 +358,14 @@ io.on("connection", (socket) => {
     room.resetSettings(player, mode);
   });
 
-  handle(socket, "setLiarSettings", ({ source, hintChance }) => {
+  handle(socket, "setLiarSettings", ({ source, hintChance, masterMode }) => {
     const { room, player } = currentSession(socket);
-    room.setLiarSettings(player, { source, hintChance });
+    room.setLiarSettings(player, { source, hintChance, masterMode });
+  });
+
+  handle(socket, "liar:master", ({ playerId }) => {
+    const { room, player } = currentSession(socket);
+    room.liarChooseMaster(player, playerId);
   });
 
   handle(socket, "setLiarWords", ({ entries }) => {

@@ -2669,6 +2669,35 @@ function renderModePicker(s) {
   if (document.activeElement !== chance) chance.value = String(s.liarHintChance);
   chance.disabled = !s.me.canManage;
   show($("liar-words-card"), s.mode === "klamca" && s.liarSource === "players");
+  const hostSource = s.liarSource === "host";
+  show($("liar-master-settings"), hostSource);
+  for (const button of document.querySelectorAll(".liar-master-mode-btn")) {
+    button.classList.toggle("selected", button.dataset.masterMode === s.liarMasterMode);
+    button.disabled = !s.me.canManage;
+  }
+  show($("liar-master-pick-row"), hostSource && s.liarMasterMode === "fixed");
+  fillMasterSelect($("liar-master-pick"), s, !s.me.canManage);
+}
+
+function fillMasterSelect(select, s, disabled) {
+  const signature = s.players.map((p) => p.id + ":" + p.nick).join("|");
+  if (select.dataset.signature !== signature) {
+    select.dataset.signature = signature;
+    select.replaceChildren(...s.players.map((p) => {
+      const option = el("option", "", p.nick);
+      option.value = p.id;
+      return option;
+    }));
+  }
+  if (document.activeElement !== select) select.value = s.liarMasterId || "";
+  select.disabled = disabled;
+}
+
+for (const button of document.querySelectorAll(".liar-master-mode-btn")) {
+  button.onclick = () => act("setLiarSettings", { masterMode: button.dataset.masterMode });
+}
+for (const id of ["liar-master-pick", "liar-next-master"]) {
+  $(id).onchange = (event) => act("liar:master", { playerId: event.target.value });
 }
 
 for (const button of document.querySelectorAll(".liar-source-btn")) {
@@ -2862,6 +2891,9 @@ function renderLiarPanel(s) {
       list.appendChild(row);
     }
     show($("liar-continue"), canSkip);
+    const canPick = s.liarSource === "host" && s.liarMasterMode === "fixed" && (s.me.canManage || isMaster);
+    show($("liar-next-master-row"), canPick);
+    if (canPick) fillMasterSelect($("liar-next-master"), s, false);
   }
 }
 

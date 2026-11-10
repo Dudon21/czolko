@@ -94,6 +94,17 @@
                 <button class="btn liar-source-btn" data-source="players">✍️ Każdy wpisuje 5</button>
                 <button class="btn liar-source-btn" data-source="host">🎬 Wpisuje host</button>
               </div>
+              <div id="liar-master-settings" class="liar-master-settings hidden">
+                <span class="mode-label">Prowadzący</span>
+                <div class="row mode-buttons">
+                  <button class="btn liar-master-mode-btn" data-master-mode="fixed">📌 Stały</button>
+                  <button class="btn liar-master-mode-btn" data-master-mode="rotate">🔄 Co rundę</button>
+                </div>
+                <label id="liar-master-pick-row" class="field field-inline">
+                  <span>Kto prowadzi</span>
+                  <select id="liar-master-pick" class="liar-master-select"></select>
+                </label>
+              </div>
               <label class="field field-inline">
                 <span>Szansa, że kłamca dostanie podpowiedź</span>
                 <select id="liar-hint-chance">
@@ -280,6 +291,10 @@
               <p id="liar-reveal-title" class="liar-big"></p>
               <p id="liar-reveal-details" class="panel-status"></p>
               <div id="liar-results" class="wave-results"></div>
+              <label id="liar-next-master-row" class="field field-inline liar-next-master hidden">
+                <span>🎬 Następną rundę prowadzi</span>
+                <select id="liar-next-master" class="liar-master-select"></select>
+              </label>
               <div class="row row-center">
                 <button id="liar-continue" class="btn btn-big btn-primary">Dalej ▶</button>
                 <span class="panel-status">automatycznie za <span class="turn-timer"></span></span>

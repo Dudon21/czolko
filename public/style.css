@@ -3558,3 +3558,42 @@ body:not(.mode-liar) .liar-only {
 .wave-result.perfect {
   box-shadow: 0 0 0 3px var(--yellow), 0 0 18px rgba(255, 210, 63, 0.7);
 }
+
+.liar-master-settings {
+  margin-top: 8px;
+}
+
+.liar-master-settings.hidden,
+.liar-next-master.hidden {
+  display: none;
+}
+
+.liar-master-mode-btn.selected {
+  background: var(--yellow);
+  color: #2b2100;
+  box-shadow: 0 0 0 3px rgba(255, 210, 63, 0.45), 0 4px 0 rgba(0, 0, 0, 0.25);
+}
+
+.liar-master-mode-btn:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.liar-master-mode-btn:disabled:not(.selected) {
+  opacity: 0.55;
+}
+
+.liar-master-select {
+  padding: 6px 10px;
+  border-radius: 12px;
+  border: 3px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--input-text);
+  font: inherit;
+  font-weight: 700;
+}
+
+.liar-next-master {
+  justify-content: center;
+  margin: 4px 0 10px;
+}

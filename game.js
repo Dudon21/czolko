@@ -7,6 +7,7 @@ const { SETTINGS_BY_KEY, defaultSettings } = require("./settings");
 const MODES = ["czolko", "wskazowka", "klamca"];
 const MODE_DEFAULT_LIMIT = { czolko: 5, wskazowka: 20, klamca: 10 };
 const LIAR_SOURCES = ["players", "host"];
+const LIAR_MASTER_MODES = ["fixed", "rotate"];
 const LIAR_WORDS_PER_PLAYER = 5;
 const LIAR_MAX_WORD = 40;
 const LIAR_MAX_HINT = 40;
@@ -174,6 +175,9 @@ class Room {
     this.liarPool = [];
     this.liarHistory = [];
     this.lastImpostorId = null;
+    this.liarMasterMode = "fixed";
+    this.liarMasterPick = null;
+    this.lastMasterId = null;
     this.cleanupTimer = null;
     this.expiresAt = Date.now() + LOBBY_TIMEOUT_MS;
     this.expiryTimer = null;
@@ -1395,7 +1399,12 @@ class Room {
 
   setLiarSettings(player, settings) {
     this.requireManager(player);
-    const { source, hintChance } = settings || {};
+    const { source, hintChance, masterMode } = settings || {};
+    if (masterMode !== undefined) {
+      if (!LIAR_MASTER_MODES.includes(masterMode)) fail("Nieznany tryb prowadzącego");
+      this.liarMasterMode = masterMode;
+      this.announce(masterMode === "rotate" ? "Kłamca: prowadzący zmienia się co rundę" : "Kłamca: stały prowadzący");
+    }
     if (source !== undefined) {
       this.requirePhase("lobby");
       if (!LIAR_SOURCES.includes(source)) fail("Nieznane źródło haseł");
@@ -1407,6 +1416,43 @@ class Room {
       if (!LIAR_HINT_CHANCES.includes(chance)) fail("Nieprawidłowa szansa na podpowiedź");
       this.liarHintChance = chance;
       this.announce(`Szansa na podpowiedź dla kłamcy: ${chance}%`);
+    }
+    this.changed();
+  }
+
+  fixedMasterId() {
+    const picked = this.liarMasterPick && this.getPlayer(this.liarMasterPick);
+    return picked ? picked.id : this.hostId;
+  }
+
+  nextRotatingMasterId() {
+    const count = this.players.length;
+    if (!count) return null;
+    const start = this.players.findIndex((p) => p.id === this.lastMasterId);
+    for (let i = 1; i <= count; i++) {
+      const candidate = this.players[(Math.max(-1, start) + i + count) % count];
+      if (candidate.connected) return candidate.id;
+    }
+    return this.players[0].id;
+  }
+
+  liarChooseMaster(player, targetId) {
+    this.requireMode("klamca");
+    if (this.liarSource !== "host") fail("Prowadzący jest tylko w wariancie „Wpisuje host”");
+    if (this.liarMasterMode !== "fixed") fail("Przy zmianie co rundę prowadzący wybiera się sam");
+    const isRoundMaster = Boolean(this.liar && this.liar.masterId === player.id);
+    if (!this.canManage(player) && !isRoundMaster) fail("Prowadzącego wybiera host albo obecny prowadzący");
+    const target = this.requireTarget(targetId);
+    this.liarMasterPick = target.id;
+    const liar = this.liar;
+    if (this.phase === "game" && liar && liar.stage === "setup") {
+      liar.masterId = target.id;
+      this.activeId = target.id;
+      this.lastMasterId = target.id;
+      this.fx("turn", { playerId: target.id });
+      this.announce(`🎬 Teraz prowadzi ${target.nick}`);
+    } else {
+      this.announce(this.phase === "game" ? `🎬 Od następnej rundy prowadzi ${target.nick}` : `🎬 Prowadzi ${target.nick}`);
     }
     this.changed();
   }
@@ -1465,6 +1511,7 @@ class Room {
     this.liarHistory = [];
     this.liarRound = 0;
     this.lastImpostorId = null;
+    this.lastMasterId = null;
     this.liarPool = [];
     for (const p of this.players) {
       p.score = 0;
@@ -1496,7 +1543,10 @@ class Room {
     if (this.phase !== "game") return;
     this.liarRound += 1;
     if (this.liarSource === "host") {
-      const master = this.getPlayer(this.hostId);
+      const masterId = this.liarMasterMode === "rotate" && this.lastMasterId ? this.nextRotatingMasterId() : this.liarMasterMode === "rotate" ? this.hostId : this.fixedMasterId();
+      const master = this.getPlayer(masterId);
+      this.lastMasterId = master ? master.id : null;
+      if (master && this.liarMasterMode === "rotate") this.announce(`🎬 W tej rundzie prowadzi ${master.nick}`);
       this.liar = this.newLiarState({ masterId: master ? master.id : null, stage: "setup" });
       this.activeId = master ? master.id : null;
       if (master) this.fx("turn", { playerId: master.id });
@@ -1981,6 +2031,8 @@ class Room {
       wave: this.waveView(viewer),
       liar: this.liarView(viewer),
       liarSource: this.liarSource,
+      liarMasterMode: this.liarMasterMode,
+      liarMasterId: this.fixedMasterId(),
       liarHintChance: this.liarHintChance,
       pointLimit: this.pointLimit,
       helpLimit: this.helpLimit,
