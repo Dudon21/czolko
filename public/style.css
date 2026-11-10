@@ -3746,3 +3746,138 @@ body:not(.mode-five) .five-only {
 .stamp-ok {
   color: var(--green);
 }
+
+.five-settings {
+  margin-top: 8px;
+}
+
+.five-settings .mode-label {
+  display: block;
+  margin-top: 6px;
+}
+
+.five-quick-btn.selected {
+  background: var(--yellow);
+  color: #2b2100;
+  box-shadow: 0 0 0 3px rgba(255, 210, 63, 0.45), 0 4px 0 rgba(0, 0, 0, 0.25);
+}
+
+.five-quick-btn:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.five-quick-btn:disabled:not(.selected) {
+  opacity: 0.55;
+}
+
+.players-grid.five-mode {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 40px 16px;
+  padding: 34px 10px 10px;
+}
+
+.players-grid.five-mode .ptile {
+  width: clamp(96px, 13vw, 140px);
+  transition: width 0.3s ease;
+}
+
+.players-grid.five-mode .ptile.five-duel {
+  width: clamp(130px, 18vw, 190px);
+}
+
+.players-grid.five-mode .word-label {
+  white-space: pre-line;
+  max-width: none;
+  font-size: 0.95rem;
+  line-height: 1.15;
+  padding: 2px 10px;
+  border-width: 3px;
+  bottom: -22px;
+  text-align: center;
+}
+
+.players-grid.five-mode .ptile.me .word-label {
+  letter-spacing: normal;
+  border-style: solid;
+}
+
+.players-grid.five-mode .nick-bar {
+  font-size: 0.72rem;
+  top: 8px;
+  left: 8px;
+}
+
+.players-grid.five-mode .ptile {
+  padding-bottom: 34px;
+}
+
+.players-grid.five-mode .turn-badge {
+  font-size: 0.85rem;
+  padding: 0 10px;
+}
+
+.five-stage {
+  margin: 0 0 4px;
+  gap: 8px;
+}
+
+.five-card {
+  padding: 8px 22px 10px;
+}
+
+.five-panel {
+  padding: 10px 16px;
+}
+
+.five-panel .liar-big {
+  margin: 0 0 8px;
+  font-size: clamp(1.2rem, 2.4vw, 1.6rem);
+}
+
+.five-pick-nick,
+.five-pick-hearts {
+  display: block;
+}
+
+.five-pick-hearts {
+  font-size: 0.8rem;
+  line-height: 1.1;
+}
+
+.five-hand-box {
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.five-hand-title {
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+}
+
+.five-card-btn {
+  max-width: 250px;
+  padding: 6px 10px;
+}
+
+.five-card-icon {
+  font-size: 1.5rem;
+}
+
+.mode-five .turn-banner {
+  margin: 0 0 4px;
+  font-size: 1.6rem;
+}
+
+.mode-five .game-layout {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.players-grid.five-mode .crown {
+  display: none;
+}

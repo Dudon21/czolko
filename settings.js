@@ -32,7 +32,8 @@ const SETTINGS = [
   { key: "fiveLives", mode: "piec", group: "Przebieg", label: "Życia na start", min: 1, max: 10, step: 1, value: 3 },
   { key: "fiveStartCards", mode: "piec", group: "Przebieg", label: "Karty na start", min: 0, max: 3, step: 1, value: 1 },
   { key: "fiveCardChance", mode: "piec", group: "Przebieg", label: "Szansa na kartę po zaliczeniu (%)", min: 0, max: 100, step: 5, value: 30 },
-  { key: "fiveAnswerSeconds", mode: "piec", group: "Czas (sekundy)", label: "Czas na odpowiedź", min: 3, max: 30, step: 1, value: 5 },
+  { key: "fiveOwnChance", mode: "piec", group: "Przebieg", label: "Faworyzowanie waszych zadań (% szansy, 0 = równo z WK)", min: 0, max: 100, step: 10, value: 0 },
+  { key: "fiveAnswerSeconds", mode: "piec", group: "Czas (sekundy)", label: "Czas na odpowiedź", min: 3, max: 60, step: 1, value: 5 },
   { key: "fiveVoteSeconds", mode: "piec", group: "Czas (sekundy)", label: "Głosowanie: zaliczamy?", min: 5, max: 60, step: 5, value: 20 },
   { key: "liarJudgeSeconds", mode: "klamca", group: "Czas (sekundy)", label: "Ocena strzału kłamcy", min: 10, max: 120, step: 5, value: 30 }
 ];

@@ -68,7 +68,17 @@ module.exports = function fiveMethods({ fail, cleanText, shuffle, textKey }) {
 
     drawFiveTask() {
       if (!this.fivePool.length) this.fillFivePool();
-      return this.fivePool.pop();
+      const chance = this.settings.fiveOwnChance;
+      const hasOwn = this.players.some((p) => (p.fiveTasks || []).length);
+      if (!chance || !hasOwn) return this.fivePool.pop();
+      const wantOwn = crypto.randomInt(100) < chance;
+      const find = () => this.fivePool.map((task) => Boolean(task.authorId) === wantOwn).lastIndexOf(true);
+      let index = find();
+      if (index < 0) {
+        this.fillFivePool();
+        index = find();
+      }
+      return index < 0 ? this.fivePool.pop() : this.fivePool.splice(index, 1)[0];
     },
 
     beginFive() {
@@ -302,7 +312,7 @@ module.exports = function fiveMethods({ fail, cleanText, shuffle, textKey }) {
         lost,
         out,
         reversed: five.reversed,
-        card: card ? card.type : null
+        card: Boolean(card)
       };
       this.fiveHistory.push({
         round: five.round,
@@ -316,13 +326,13 @@ module.exports = function fiveMethods({ fail, cleanText, shuffle, textKey }) {
         reversed: five.reversed,
         curses: five.curses
       });
-      this.fx("fiveResult", { playerId: five.answererId, passed, lost, out, card: card ? card.type : null, reversed: five.reversed });
+      this.fx("fiveResult", { playerId: five.answererId, passed, lost, out, card: Boolean(card), reversed: five.reversed });
       const name = answerer ? answerer.nick : "?";
       if (five.reversed) {
         const owner = this.getPlayer(five.reverseOwnerId);
         this.announce(passed ? `🔄 ${name} obronił(a) się przed odwrotką` : `🔄 ${name} nie zaliczył(a)! ${owner ? owner.nick : "?"} dostaje +1 ❤️`);
       } else if (passed) {
-        this.announce(`✅ ${name} zalicza (${yes}:${no})${card ? ` i dostaje kartę ${FIVE_CARDS[card.type].icon} ${FIVE_CARDS[card.type].name}` : ""}`);
+        this.announce(`✅ ${name} zalicza (${yes}:${no})${card ? " i dostaje tajną kartę 🃏" : ""}`);
       } else {
         this.announce(`❌ ${name} nie zalicza (${yes}:${no}), −${lost} ❤️${out ? ". Odpada! 💀" : ""}`);
       }
@@ -462,11 +472,13 @@ module.exports = function fiveMethods({ fail, cleanText, shuffle, textKey }) {
       };
     },
 
-    fivePlayerView(p) {
+    fivePlayerView(p, viewer) {
+      const cards = p.cards || [];
       return {
         lives: p.lives || 0,
         out: this.mode === "piec" && this.phase !== "lobby" && (p.lives || 0) <= 0,
-        cards: (p.cards || []).map((card) => ({ id: card.id, type: card.type })),
+        cardCount: cards.length,
+        cards: viewer && viewer.id === p.id ? cards.map((card) => ({ id: card.id, type: card.type })) : [],
         curses: p.fiveCurses || []
       };
     },

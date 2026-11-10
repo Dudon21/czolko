@@ -2214,7 +2214,7 @@ class Room {
         authorId: p.word && p.word.authorRevealed ? p.word.authorId : null,
         authorNick: p.word && p.word.authorRevealed ? this.authorName(p.word) : null,
         fiveTasks: (p.fiveTasks || []).length,
-        ...this.fivePlayerView(p)
+        ...this.fivePlayerView(p, viewer)
       })),
       vote: this.voteView(viewer),
       results: this.phase === "end"

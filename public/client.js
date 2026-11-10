@@ -624,7 +624,7 @@ const fx = {
         break;
       case "fiveGo":
         sfx.play("voteStart", 0);
-        this.stamp(id, "5 SEKUND!", "stamp-vote");
+        this.stamp(id, cfg("fiveAnswerSeconds", 5) + " SEKUND!", "stamp-vote");
         break;
       case "fiveResult":
         if (event.passed) {
@@ -638,8 +638,12 @@ const fx = {
           this.busyUntil = performance.now() + 1800;
           setTimeout(() => this.overlay([el("div", "fx-big", "💀 " + liarNick(id) + " ODPADA!")], "fx-win", 1800), 500);
         } else if (event.card) {
-          const info = (store.fiveCards || {})[event.card];
-          if (info) setTimeout(() => this.overlay([el("div", "fx-sub", liarNick(id) + " dostaje kartę"), el("div", "fx-big", info.icon + " " + info.name)], "fx-win", 1700), 500);
+          setTimeout(() => {
+            const mine = id === me ? findPlayer(me) : null;
+            const newest = mine && mine.cards.length ? fiveCardInfo(mine.cards[mine.cards.length - 1].type) : null;
+            if (newest) this.overlay([el("div", "fx-sub", "Dostajesz tajną kartę"), el("div", "fx-big", newest.icon + " " + newest.name), el("div", "fx-sub", newest.text)], "fx-win", 2600);
+            else this.overlay([el("div", "fx-sub", liarNick(id) + " dostaje tajną kartę"), el("div", "fx-big", "🃏")], "fx-win", 1500);
+          }, 600);
         }
         break;
       case "fiveCard": {
@@ -1544,6 +1548,7 @@ function updateTile(tile, p, s, leaders) {
   }
   tile.root.classList.remove("liar-suspect");
   tile.root.classList.toggle("five-out", Boolean(s.mode === "piec" && p.out));
+  tile.root.classList.toggle("five-duel", Boolean(s.mode === "piec" && s.five && (s.five.askerId === p.id || s.five.answererId === p.id)));
   if (s.mode === "piec") {
     tile.word.dataset.word = "";
     const label = fiveTileLabel(s, p);
@@ -1725,7 +1730,13 @@ function renderGrid(s, leaders) {
     const rank = (p) => (p.id === s.help.askerId ? 0 : p.id === s.help.helperId ? 1 : 2);
     others.sort((a, b) => rank(a) - rank(b));
   }
-  const spotlight = !helpMode && s.mode !== "wskazowka" && others.some((p) => p.id === s.activeId);
+  const fiveMode = s.mode === "piec" && Boolean(s.five);
+  if (fiveMode) {
+    const rank = (p) => (p.id === s.five.askerId ? 0 : p.id === s.five.answererId ? 1 : p.out ? 3 : 2);
+    others.sort((a, b) => rank(a) - rank(b));
+  }
+  const spotlight = !helpMode && !fiveMode && s.mode !== "wskazowka" && others.some((p) => p.id === s.activeId);
+  grid.classList.toggle("five-mode", fiveMode);
   grid.classList.toggle("liar-mode", s.mode === "klamca");
   grid.classList.toggle("wave-mode", s.mode === "wskazowka");
   grid.classList.toggle("spotlight", spotlight);
@@ -2710,7 +2721,7 @@ function renderModePicker(s) {
     button.disabled = !s.me.canManage;
   }
   $("mode-desc").textContent = s.mode === "piec"
-    ? "Jak u WK: pytający czyta zadanie na głos, klika START i odpowiadający ma 5 sekund. Reszta głosuje, czy zaliczyć. Zaliczysz, to przejmujesz pytanie. Nie zaliczysz, tracisz życie. Są karty specjalne, wygrywa ostatni żywy."
+    ? "Jak u WK: pytający czyta zadanie na głos, klika START i odpowiadający ma " + cfg("fiveAnswerSeconds", 5) + " s. Reszta głosuje, czy zaliczyć. Zaliczysz, to przejmujesz pytanie. Nie zaliczysz, tracisz życie. Są karty specjalne, wygrywa ostatni żywy."
     : s.mode === "wskazowka"
     ? "Ktoś wymyśla skalę (np. zły ↔ dobry kierowca), potem każdy po kolei podpowiada, a reszta ustawia wskazówkę na tarczy. Hasła nie są potrzebne."
     : s.mode === "klamca"
@@ -2724,6 +2735,10 @@ function renderModePicker(s) {
   if (document.activeElement !== chance) chance.value = String(s.liarHintChance);
   chance.disabled = !s.me.canManage;
   show($("liar-words-card"), s.mode === "klamca" && s.liarSource === "players");
+  for (const button of document.querySelectorAll(".five-quick-btn")) {
+    button.classList.toggle("selected", s.settings && s.settings[button.dataset.key] === Number(button.dataset.value));
+    button.disabled = !s.me.canManage;
+  }
   const hostSource = s.liarSource === "host";
   show($("liar-master-settings"), hostSource);
   for (const button of document.querySelectorAll(".liar-master-mode-btn")) {
@@ -2750,6 +2765,9 @@ function fillMasterSelect(select, s, disabled) {
 
 for (const button of document.querySelectorAll(".liar-master-mode-btn")) {
   button.onclick = () => act("setLiarSettings", { masterMode: button.dataset.masterMode });
+}
+for (const button of document.querySelectorAll(".five-quick-btn")) {
+  button.onclick = () => act("setSetting", { key: button.dataset.key, value: Number(button.dataset.value) });
 }
 for (const id of ["liar-master-pick", "liar-next-master"]) {
   $(id).onchange = (event) => act("liar:master", { playerId: event.target.value });
@@ -3755,12 +3773,16 @@ function fiveCardInfo(type) {
   return (store.fiveCards || {})[type] || { icon: "🃏", name: type, text: "", target: null };
 }
 
+function fiveHearts(lives) {
+  return lives <= 5 ? "❤️".repeat(lives) : "❤️×" + lives;
+}
+
 function fiveTileLabel(s, p) {
-  if (p.out) return "💀 odpadł(a)" + (p.cards.length ? " · " + p.cards.map((c) => fiveCardInfo(c.type).icon).join("") : "");
-  const hearts = p.lives <= 5 ? "❤️".repeat(p.lives) : "❤️×" + p.lives;
-  const cards = p.cards.map((c) => fiveCardInfo(c.type).icon).join("");
+  const cards = p.cardCount ? "🃏" + (p.cardCount > 1 ? "×" + p.cardCount : "") : "";
   const curses = p.curses.map((type) => fiveCardInfo(type).icon).join("");
-  return hearts + (cards ? " · 🃏" + cards : "") + (curses ? " · ⚠️" + curses : "");
+  const extra = [cards, curses ? "⚠️" + curses : ""].filter(Boolean).join(" ");
+  const top = p.out ? "💀 odpadł(a)" : fiveHearts(p.lives);
+  return extra ? top + "\n" + extra : top;
 }
 
 const fiveCurseText = {
@@ -3873,7 +3895,7 @@ function renderFive(s) {
       button.style.setProperty("--pc", p.color);
       const slot = el("div", "media-slot");
       bindSlot(slot, p);
-      button.append(slot, el("span", "", p.nick + " " + (p.lives <= 5 ? "❤️".repeat(p.lives) : "❤️×" + p.lives)));
+      button.append(slot, el("span", "five-pick-nick", p.nick), el("span", "five-pick-hearts", fiveHearts(p.lives)));
       button.onclick = () => act("five:choose", { playerId: p.id });
       box.appendChild(button);
     }
@@ -3896,7 +3918,7 @@ function renderFive(s) {
   let banner;
   if (five.stage === "pick") banner = isAsker ? "🎤 Twoje pytanie!" : "🎤 Pyta: " + asker;
   else if (five.stage === "ready") banner = isAnswerer ? "👂 Pytają cię!" : isAsker ? "📖 Przeczytaj zadanie na głos!" : "📖 " + asker + " czyta zadanie";
-  else if (five.stage === "answer") banner = isAnswerer ? "⏱️ TWOJE 5 SEKUND!" : "⏱️ Odpowiada: " + answerer;
+  else if (five.stage === "answer") banner = isAnswerer ? "⏱️ TWOJE " + cfg("fiveAnswerSeconds", 5) + " SEKUND!" : "⏱️ Odpowiada: " + answerer;
   else banner = "🗳️ Zaliczamy?";
   $("turn-banner").replaceChildren(banner + " ", el("span", "turn-timer"));
   $("turn-banner").classList.toggle("mine", isAsker || isAnswerer);
