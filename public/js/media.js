@@ -69,8 +69,29 @@ const media = {
 };
 
 const video = {
-  lib: window.LivekitClient || null,
+  lib: null,
+  loading: null,
   available: false,
+
+  load() {
+    if (this.lib) return Promise.resolve(this.lib);
+    if (!this.loading) {
+      this.loading = new Promise((resolve) => {
+        const script = document.createElement("script");
+        script.src = "/vendor/livekit-client.js";
+        script.onload = () => {
+          this.lib = window.LivekitClient || null;
+          resolve(this.lib);
+        };
+        script.onerror = () => {
+          this.loading = null;
+          resolve(null);
+        };
+        document.head.appendChild(script);
+      });
+    }
+    return this.loading;
+  },
   room: null,
   connecting: null,
   cameraOn: false,
@@ -240,7 +261,7 @@ const phone = {
 
   async connect() {
     const code = $("phone-code").value.trim().toUpperCase();
-    if (!video.lib) return ($("phone-error").textContent = "Nie udało się wczytać biblioteki wideo");
+    if (!(await video.load())) return ($("phone-error").textContent = "Nie udało się wczytać biblioteki wideo");
     $("btn-phone-connect").disabled = true;
     const response = await call("cameraJoin", { code });
     $("btn-phone-connect").disabled = false;

@@ -9,12 +9,16 @@ $("theme-toggle").onclick = () => {
 fetch("/config.json")
   .then((res) => res.json())
   .then((config) => {
-    video.available = Boolean(config.video && video.lib);
     store.settingsSpec = Array.isArray(config.settings) ? config.settings : [];
     store.fiveCards = config.fiveCards || {};
     if (store.state) render();
     renderCameraButtons();
-    if (store.state) video.sync(store.state);
+    if (!config.video) return;
+    video.load().then((lib) => {
+      video.available = Boolean(lib);
+      renderCameraButtons();
+      if (store.state) video.sync(store.state);
+    });
   })
   .catch(() => {});
 
@@ -46,10 +50,13 @@ function render() {
   document.body.classList.toggle("mode-wave", s.mode === "wskazowka");
   document.body.classList.toggle("mode-liar", s.mode === "klamca");
   document.body.classList.toggle("mode-five", s.mode === "piec");
+  document.body.classList.toggle("mode-kto", s.mode === "kto");
   notes.placeholder = s.mode === "wskazowka"
     ? "Twoje notatki: skojarzenia, podpowiedzi innych… Zostają tylko u ciebie."
     : s.mode === "klamca"
       ? "Notuj podejrzane skojarzenia… Zostają tylko u ciebie."
+      : s.mode === "kto"
+      ? "Notuj, kto na kogo głosuje… Zostaje tylko u ciebie."
       : s.mode === "piec"
       ? "Notuj, kto ma jakie karty i kto komu dowalił… Zostaje tylko u ciebie."
       : "Co już wiesz o swoim haśle? Notatki zostają tylko u ciebie.";
@@ -77,6 +84,7 @@ function goHome(message) {
   wordsForm.reset();
   liarWordsForm.reset();
   fiveTasksForm.reset();
+  ktoQuestionsForm.reset();
   for (const tile of tiles.values()) tile.root.remove();
   tiles.clear();
   show($("admin-toggle"), false);
@@ -179,6 +187,11 @@ socket.on("avatar", ({ id, data }) => {
 });
 
 socket.on("event", ({ text }) => toast(text));
+
+socket.on("build", (build) => {
+  if (!store.build) store.build = build;
+  else if (store.build !== build) show($("update-banner"), true);
+});
 
 socket.on("wordChanged", ({ reason, text }) => {
   motion.rollWord($("my-tile").querySelector(".my-word"), true);

@@ -219,6 +219,26 @@ const fx = {
         }
         break;
       }
+      case "fiveGhost":
+        if (!(event.ids || []).includes(me)) break;
+        sfx.play("refill", 0);
+        setTimeout(() => {
+          const mine = findPlayer(me);
+          const newest = mine && mine.cards.length ? fiveCardInfo(mine.cards[mine.cards.length - 1].type) : null;
+          if (newest) this.overlay([el("div", "fx-sub", "👻 Karta dla ducha"), el("div", "fx-big", newest.icon + " " + newest.name), el("div", "fx-sub", newest.text)], "fx-win", 2600);
+        }, 300);
+        break;
+      case "fiveFinal":
+        sfx.play("voteStart", 0);
+        this.overlay([el("div", "fx-big", "⚔️ FINAŁ 1 NA 1"), el("div", "fx-sub", (event.ids || []).map((pid) => nickOf(pid)).join(" kontra "))], "fx-win", 2000);
+        break;
+      case "ktoRound":
+        sfx.play("turn");
+        break;
+      case "ktoReveal":
+        sfx.play("voteStart");
+        for (const pid of event.ids || []) this.stamp(pid, "🫵", "stamp-author");
+        break;
       case "liarSkip":
         sfx.play("ready");
         break;

@@ -43,7 +43,8 @@ const check = (name, cond) => { console.log(cond ? "OK  " : "FAIL", name); if (!
   await wait(100);
   const bLast = b.msgs[b.msgs.length - 1];
   const cLast = c.msgs[c.msgs.length - 1];
-  check("C sees word in chat", cLast.text.includes(bWord));
+  const cWord = a.st.players.find((p) => p.id === c.st.me.id).word;
+  check("C sees word in chat", cLast.text === require("../lib/text").maskSecret("Bartek ma " + bWord + " hehe", cWord));
   check("B gets masked word", !bLast.text.includes(bWord) && bLast.text.includes("█"));
   check("B raw socket never contains own word", !b.raw.some((r) => r.includes(bWord)));
   b.disconnect();

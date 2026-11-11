@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Czółko</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🙈%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
@@ -17,6 +18,7 @@
   <link rel="stylesheet" href="css/wave.css">
   <link rel="stylesheet" href="css/liar.css">
   <link rel="stylesheet" href="css/five.css">
+  <link rel="stylesheet" href="css/kto.css">
   <link rel="stylesheet" href="css/admin.css">
   <script>
     try {
@@ -88,6 +90,12 @@
           <div id="lobby-players" class="lobby-players"></div>
         </div>
 
+        <div id="night-lobby" class="card night-box hidden">
+          <h2>🏆 Tabela wieczoru</h2>
+          <div class="night-table"></div>
+          <button class="btn btn-small btn-night-reset hidden">Wyzeruj tabelę</button>
+        </div>
+
         <div class="card">
           <h2>Ustawienia</h2>
           <div class="mode-picker">
@@ -97,6 +105,7 @@
               <button class="btn mode-btn" data-mode="wskazowka">🔮 Wskazówka</button>
               <button class="btn mode-btn" data-mode="klamca">🕵️ Kłamca</button>
               <button class="btn mode-btn" data-mode="piec">⏱️ 5 sekund</button>
+              <button class="btn mode-btn" data-mode="kto">🫵 Kto z nas?</button>
             </div>
             <p id="mode-desc" class="status mode-desc"></p>
             <div class="five-only five-settings">
@@ -129,7 +138,22 @@
                 <button class="btn five-quick-btn" data-key="fiveOwnChance" data-value="80">80%</button>
                 <button class="btn five-quick-btn" data-key="fiveOwnChance" data-value="100">Tylko wasze</button>
               </div>
-              <p class="status">Karty, szansę na kartę i czas głosowania ustawisz w „⚙️ Zaawansowane”.</p>
+              <span class="mode-label">Rosnące tempo (czas na odpowiedź maleje)</span>
+              <div class="row mode-buttons">
+                <button class="btn five-quick-btn" data-key="fiveSpeedEvery" data-value="0">Wyłączone</button>
+                <button class="btn five-quick-btn" data-key="fiveSpeedEvery" data-value="5">−1 s co 5 pytań</button>
+                <button class="btn five-quick-btn" data-key="fiveSpeedEvery" data-value="3">−1 s co 3 pytania</button>
+              </div>
+              <span class="mode-label">Duchy (odpadli dostają karty na żywych)</span>
+              <div class="row mode-buttons">
+                <button class="btn five-quick-btn" data-key="fiveGhostEvery" data-value="0">Wyłączone</button>
+                <button class="btn five-quick-btn" data-key="fiveGhostEvery" data-value="5">👻 co 5 pytań</button>
+                <button class="btn five-quick-btn" data-key="fiveGhostEvery" data-value="3">👻 co 3 pytania</button>
+                <button class="btn five-quick-btn" data-key="fiveGhostEvery" data-value="2">👻 co 2 pytania</button>
+              </div>
+              <span class="mode-label">Karty w grze (kliknij, żeby wyłączyć)</span>
+              <div id="five-card-toggles" class="row mode-buttons five-card-toggles"></div>
+              <p class="status">Liczbę kart na start, szansę na kartę i czas głosowania ustawisz w „⚙️ Zaawansowane”.</p>
             </div>
             <div class="liar-only liar-settings">
               <span class="mode-label">Hasła</span>
@@ -147,6 +171,12 @@
                   <span>Kto prowadzi</span>
                   <select id="liar-master-pick" class="liar-master-select"></select>
                 </label>
+              </div>
+              <span class="mode-label">Liczba kłamców</span>
+              <div class="row mode-buttons">
+                <button class="btn five-quick-btn" data-key="liarTwoFrom" data-value="0">🕵️ Zawsze jeden</button>
+                <button class="btn five-quick-btn" data-key="liarTwoFrom" data-value="7">🕵️🕵️ Dwóch od 7 graczy</button>
+                <button class="btn five-quick-btn" data-key="liarTwoFrom" data-value="5">🕵️🕵️ Dwóch od 5 graczy</button>
               </div>
               <label class="field field-inline">
                 <span>Szansa, że kłamca dostanie podpowiedź</span>
@@ -240,7 +270,19 @@
         <textarea id="five-tasks-input" class="five-tasks-input" rows="6" maxlength="4500" placeholder="Wymień trzy…"></textarea>
         <div class="row">
           <button id="btn-save-five-tasks" class="btn btn-primary">Zapisz zadania</button>
+          <button id="btn-load-five-tasks" class="btn btn-small hidden">↩️ Wczytaj moje poprzednie</button>
           <span id="five-tasks-status" class="status"></span>
+        </div>
+      </div>
+
+      <div id="kto-questions-card" class="card kto-only">
+        <h2>Wasze pytania do „Kto z nas?”</h2>
+        <p class="status">Opcjonalnie. Jedno pytanie w linii, np. „Kto z nas najprawdopodobniej zgubi się w Biedronce?”. Mieszają się z gotowymi.</p>
+        <textarea id="kto-questions-input" class="five-tasks-input" rows="6" maxlength="3000" placeholder="Kto z nas najprawdopodobniej…"></textarea>
+        <div class="row">
+          <button id="btn-save-kto-questions" class="btn btn-primary">Zapisz pytania</button>
+          <button id="btn-load-kto-questions" class="btn btn-small hidden">↩️ Wczytaj moje poprzednie</button>
+          <span id="kto-questions-status" class="status"></span>
         </div>
       </div>
 
@@ -250,6 +292,7 @@
         <div id="liar-word-inputs" class="liar-word-inputs"></div>
         <div class="row">
           <button id="btn-save-liar-words" class="btn btn-primary">Zapisz hasła</button>
+          <button id="btn-load-liar-words" class="btn btn-small hidden">↩️ Wczytaj moje poprzednie</button>
         </div>
         <p id="liar-words-status" class="status"></p>
       </div>
@@ -260,6 +303,7 @@
         <div class="row">
           <button id="btn-random" class="btn">Losuj</button>
           <button id="btn-save-words" class="btn btn-primary">Zapisz hasła</button>
+          <button id="btn-load-words" class="btn btn-small hidden">↩️ Wczytaj moje poprzednie</button>
         </div>
         <p id="words-status" class="status"></p>
       </div>
@@ -344,8 +388,29 @@
               <button id="five-target-cancel" class="btn btn-small">Anuluj</button>
             </div>
             <div id="five-hand-box" class="five-hand-box hidden">
-              <div class="five-hand-title">🃏 Twoje tajne karty (inni widzą tylko, ile ich masz)</div>
+              <div id="five-hand-title" class="five-hand-title">🃏 Twoje tajne karty (inni widzą tylko, ile ich masz)</div>
               <div id="five-hand" class="five-hand"></div>
+            </div>
+          </div>
+        </div>
+        <div id="kto-stage" class="liar-stage kto-stage hidden">
+          <div id="kto-card" class="liar-role kto-card">
+            <div id="kto-label" class="liar-role-label"></div>
+            <div id="kto-question" class="five-task"></div>
+            <div id="kto-author" class="five-curses"></div>
+          </div>
+          <div class="bottom-panel liar-panel">
+            <div id="kto-vote" class="liar-box hidden">
+              <p id="kto-vote-status" class="panel-status"></p>
+              <div id="kto-vote-buttons" class="liar-vote-buttons"></div>
+            </div>
+            <div id="kto-reveal" class="liar-box hidden">
+              <p id="kto-reveal-title" class="liar-big"></p>
+              <div id="kto-results" class="wave-results"></div>
+              <div class="row row-center">
+                <button id="kto-continue" class="btn btn-big btn-primary">Dalej ▶</button>
+                <span class="panel-status">automatycznie za <span class="turn-timer"></span></span>
+              </div>
             </div>
           </div>
         </div>
@@ -502,6 +567,17 @@
         <h2 id="history-title">Kto miał jakie hasła</h2>
         <div id="history" class="history"></div>
       </div>
+      <div id="night-end" class="night-box hidden">
+        <h2>🏆 Tabela wieczoru</h2>
+        <p class="status night-info"></p>
+        <div class="night-table"></div>
+        <button class="btn btn-small btn-night-reset hidden">Wyzeruj tabelę</button>
+      </div>
+      <div id="mode-vote-box" class="mode-vote-box">
+        <h2>Co gramy dalej?</h2>
+        <p class="status">Kliknij tryb, w który chcesz zagrać. Wygrany ustawi się w lobby.</p>
+        <div id="mode-vote-buttons" class="row row-center mode-buttons"></div>
+      </div>
       <button id="btn-to-lobby" class="btn btn-primary btn-wide">Wróć do lobby</button>
       <button class="btn btn-small btn-red btn-wide btn-leave-game">Wyjdź z pokoju</button>
     </div>
@@ -624,11 +700,14 @@
     <button class="btn btn-small btn-extend hidden">Przedłuż</button>
   </div>
 
+  <div id="update-banner" class="update-banner hidden">
+    🆕 Jest nowa wersja gry
+    <button class="btn btn-small btn-primary" onclick="location.reload()">Odśwież</button>
+  </div>
   <div id="connection" class="connection hidden">Łączenie z serwerem…</div>
   <div id="toasts" class="toasts"></div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/vendor/livekit-client.js"></script>
   <script src="match.js"></script>
   <script src="js/core.js"></script>
   <script src="js/audio.js"></script>
@@ -639,6 +718,7 @@
   <script src="js/modes/wave.js"></script>
   <script src="js/modes/liar.js"></script>
   <script src="js/modes/five.js"></script>
+  <script src="js/modes/kto.js"></script>
   <script src="js/end.js"></script>
   <script src="js/admin.js"></script>
   <script src="js/chat.js"></script>

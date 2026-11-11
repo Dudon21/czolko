@@ -1,5 +1,14 @@
 const liarUi = { roundKey: "", stageKey: "", introRound: 0 };
 
+function liarIds(liar) {
+  return liar.impostorIds || (liar.impostorId ? [liar.impostorId] : []);
+}
+
+function liarNames(liar) {
+  const names = liarIds(liar).map((id) => nickOf(id));
+  return names.length > 1 ? names.slice(0, -1).join(", ") + " i " + names[names.length - 1] : names[0] || "?";
+}
+
 function liarTileLabel(s, p) {
   const liar = s.liar;
   if (!liar) return "—";
@@ -7,7 +16,7 @@ function liarTileLabel(s, p) {
   if (liar.stage === "reveal") {
     const result = (liar.results || []).find((r) => r.id === p.id);
     const pts = result ? "+" + result.points : "";
-    return p.id === liar.impostorId ? "🕵️ kłamca " + pts : pts || "—";
+    return liarIds(liar).includes(p.id) ? "🕵️ kłamca " + pts : pts || "—";
   }
   if (liar.stage === "vote") return liar.voted.includes(p.id) ? "✅ zagłosował(a)" : "🤔 myśli…";
   if (liar.stage === "judge") return p.id === liar.impostorId ? "🕵️ czeka na werdykt" : liar.judged.includes(p.id) ? "✅ ocenił(a)" : "🤔 ocenia…";
@@ -19,7 +28,8 @@ function liarTileLabel(s, p) {
 function renderLiarRole(s) {
   const liar = s.liar;
   const role = $("liar-role");
-  const roleSignature = JSON.stringify([liar.role, liar.stage, liar.word, liar.hint, liar.hintGiven, nickOf(liar.impostorId), nickOf(liar.masterId)]);
+  const two = liar.impostorCount > 1;
+  const roleSignature = JSON.stringify([liar.role, liar.stage, liar.word, liar.hint, liar.hintGiven, liarNames(liar), liar.impostorCount, nickOf(liar.masterId)]);
   if (role.dataset.signature === roleSignature) return;
   role.dataset.signature = roleSignature;
   role.className = "liar-role";
@@ -28,8 +38,8 @@ function renderLiarRole(s) {
     role.classList.add("master");
     if (liar.stage === "setup") role.append(el("div", "liar-role-label", "🎬 Prowadzisz rundę"), el("div", "liar-role-word", "Wymyśl hasło"));
     else {
-      role.append(el("div", "liar-role-label", "🎬 Prowadzisz · kłamcą jest " + nickOf(liar.impostorId)), el("div", "liar-role-word", liar.word));
-      role.appendChild(el("div", "liar-role-hint", liar.hintGiven ? "Kłamca dostał podpowiedź: " + liar.hint : "Kłamca gra bez podpowiedzi"));
+      role.append(el("div", "liar-role-label", "🎬 Prowadzisz · " + (two ? "kłamcami są " : "kłamcą jest ") + liarNames(liar)), el("div", "liar-role-word", liar.word));
+      role.appendChild(el("div", "liar-role-hint", liar.hintGiven ? "Podpowiedź dla kłamcy: " + liar.hint : "Bez podpowiedzi dla kłamcy"));
     }
     return;
   }
@@ -40,11 +50,11 @@ function renderLiarRole(s) {
   if (liar.role === "impostor" && liar.stage !== "reveal") {
     role.classList.add("impostor");
     role.append(el("div", "liar-role-label", "Nie znasz hasła"), el("div", "liar-role-word", "🕵️ JESTEŚ KŁAMCĄ"));
-    role.appendChild(el("div", "liar-role-hint", liar.hintGiven ? "Podpowiedź: " + liar.hint : "Bez podpowiedzi 😈 Udawaj!"));
+    role.appendChild(el("div", "liar-role-hint", (liar.hintGiven ? "Podpowiedź: " + liar.hint : "Bez podpowiedzi 😈 Udawaj!") + (two ? " · Jest was dwóch, nie wiesz, kto jest drugi" : "")));
     return;
   }
   role.classList.add("crew");
-  role.append(el("div", "liar-role-label", liar.stage === "reveal" ? "Hasło było" : "Twoje hasło"), el("div", "liar-role-word", liar.word || "?"));
+  role.append(el("div", "liar-role-label", liar.stage === "reveal" ? "Hasło było" : two ? "Twoje hasło · uwaga, kłamców jest dwóch!" : "Twoje hasło"), el("div", "liar-role-word", liar.word || "?"));
   if (liar.stage === "reveal" && liar.hint) {
     role.appendChild(el("div", "liar-role-hint", (liar.hintGiven ? "Kłamca dostał podpowiedź: " : "Kłamca NIE dostał podpowiedzi: ") + liar.hint));
   }
@@ -106,13 +116,15 @@ function renderLiarPanel(s) {
     });
   }
   if (stage === "reveal") {
-    const impostor = nickOf(liar.impostorId);
+    const impostor = liarNames(liar);
+    const many = liarIds(liar).length > 1;
+    const caught = nickOf(liar.ejectedId);
     let title;
     if (liar.escaped) title = "🏃 Kłamca " + impostor + " uciekł z gry!";
-    else if (liar.wrongEject) title = "😱 Wyrzuciliście " + nickOf(liar.ejectedId) + "! Kłamcą był(a) " + impostor;
-    else if (!liar.caught) title = "😈 " + impostor + " oszukał(a) wszystkich!";
-    else if (liar.guessCorrect) title = "😏 Złapany, ale " + impostor + " zgadł(a) hasło!";
-    else title = "🎉 Złapaliście kłamcę: " + impostor + "!";
+    else if (liar.wrongEject) title = "😱 Wyrzuciliście " + caught + "! " + (many ? "Kłamcami byli " : "Kłamcą był(a) ") + impostor;
+    else if (!liar.caught) title = many ? "😈 " + impostor + " oszukali wszystkich!" : "😈 " + impostor + " oszukał(a) wszystkich!";
+    else if (liar.guessCorrect) title = "😏 Złapany, ale " + caught + " zgadł(a) hasło!" + (many ? " Kłamcy: " + impostor : "");
+    else title = many ? "🎉 Złapaliście kłamcę: " + caught + "! Kłamcy: " + impostor : "🎉 Złapaliście kłamcę: " + impostor + "!";
     $("liar-reveal-title").textContent = title;
     const details = [];
     if (liar.guess) details.push("Strzał kłamcy: " + liar.guess + (liar.guessCorrect ? " ✅" : " ❌"));
@@ -169,8 +181,9 @@ function renderLiar(s) {
   if (liar.stage !== "setup" && liarUi.introRound !== liar.round && liar.role) {
     liarUi.introRound = liar.round;
     fx.afterBusy(() => {
-      if (liar.role === "impostor") fx.overlay([el("div", "fx-big liar-fx-impostor", "🕵️ JESTEŚ KŁAMCĄ!"), el("div", "fx-sub", liar.hintGiven ? "Podpowiedź: " + liar.hint : "Bez podpowiedzi. Powodzenia 😈")], "fx-win liar-fx", 2600);
-      else if (liar.role === "crew") fx.overlay([el("div", "fx-sub", "Twoje hasło"), el("div", "fx-big", liar.word)], "fx-win liar-fx", 2200);
+      const pair = liar.impostorCount > 1;
+      if (liar.role === "impostor") fx.overlay([el("div", "fx-big liar-fx-impostor", "🕵️ JESTEŚ KŁAMCĄ!"), el("div", "fx-sub", (liar.hintGiven ? "Podpowiedź: " + liar.hint : "Bez podpowiedzi. Powodzenia 😈") + (pair ? " · jest was dwóch" : ""))], "fx-win liar-fx", 2600);
+      else if (liar.role === "crew") fx.overlay([el("div", "fx-sub", pair ? "Twoje hasło · kłamców jest dwóch!" : "Twoje hasło"), el("div", "fx-big", liar.word)], "fx-win liar-fx", 2200);
     });
   }
   let banner;

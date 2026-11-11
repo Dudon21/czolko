@@ -24,7 +24,7 @@ function renderAdminPanel(s) {
   show($("admin-settings"), s.phase === "game");
   for (const button of document.querySelectorAll("[data-admin=forceNext]")) {
     button.disabled = s.phase !== "game";
-    button.textContent = s.mode === "wskazowka" ? "Następna runda" : s.mode === "klamca" || s.mode === "piec" ? "Dalej / pomiń" : "Wymuś Next";
+    button.textContent = s.mode === "wskazowka" ? "Następna runda" : s.mode === "klamca" || s.mode === "piec" || s.mode === "kto" ? "Dalej / pomiń" : "Wymuś Next";
   }
 
   const adminSignature = JSON.stringify([s.mode, s.phase, s.me.id, s.players.map((p) => [p.id, p.nick, p.color, p.score, p.cardCount])]);

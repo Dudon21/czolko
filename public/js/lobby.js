@@ -383,8 +383,26 @@ const wordsForm = (() => {
     $("words-status").textContent = status;
     $("words-status").classList.toggle("status-ok", !dirty && Boolean(ready));
     $("btn-save-words").disabled = hasDuplicate || filled < WORDS_PER_PLAYER;
+    const stash = stashed();
+    show($("btn-load-words"), Boolean(stash) && stash.words.join("|") !== list.join("|"));
     return { list, hasDuplicate };
   }
+
+  function stashed() {
+    const data = saved.get("words");
+    return data && Array.isArray(data.words) && data.words.length === WORDS_PER_PLAYER ? data : null;
+  }
+
+  $("btn-load-words").onclick = () => {
+    const stash = stashed();
+    if (!stash) return;
+    stash.words.forEach((word, i) => {
+      inputs[i].value = String(word).slice(0, 40);
+    });
+    stars = new Set((stash.stars || []).filter((index) => Number.isInteger(index) && index >= 0 && index < WORDS_PER_PLAYER).slice(0, MAX_STARRED));
+    dirty = true;
+    refresh();
+  };
 
   $("btn-random").onclick = async () => {
     const list = values();
@@ -404,6 +422,7 @@ const wordsForm = (() => {
     if (hasDuplicate) return;
     const response = await act("setWords", { words: list, starred: [...stars] });
     if (response.ok) {
+      saved.set("words", { words: list, stars: [...stars] });
       dirty = false;
       toast("Hasła zapisane");
       sync();
@@ -439,7 +458,7 @@ function renderLobby(s) {
   renderCameraButtons();
 
   const canKick = s.me.canManage;
-  const lobbySignature = JSON.stringify([s.me.id, canKick, s.mode, s.liarSource, s.players.map((p) => [p.id, p.nick, p.color, p.connected, p.canManage, p.wordsReady, p.liarReady, p.fiveTasks, p.hasPhone])]);
+  const lobbySignature = JSON.stringify([s.me.id, canKick, s.mode, s.liarSource, s.players.map((p) => [p.id, p.nick, p.color, p.connected, p.canManage, p.wordsReady, p.liarReady, p.fiveTasks, p.ktoQuestions, p.hasPhone])]);
   patchList($("lobby-players"), lobbySignature, (list) => {
     for (const p of s.players) {
       const row = el("div", `lobby-player${p.connected ? "" : " offline"}`);
@@ -453,6 +472,7 @@ function renderLobby(s) {
       const readyFlag = s.mode === "klamca" ? p.liarReady : p.wordsReady;
       const showWordsTag = s.mode === "czolko" || (s.mode === "klamca" && s.liarSource === "players");
       if (s.mode === "piec" && p.fiveTasks) tags.appendChild(el("span", "tag tag-ok", "📝 " + p.fiveTasks + " zadań"));
+      if (s.mode === "kto" && p.ktoQuestions) tags.appendChild(el("span", "tag tag-ok", "📝 " + p.ktoQuestions + " pytań"));
       if (showWordsTag) tags.appendChild(el("span", `tag ${readyFlag ? "tag-ok" : ""}`, readyFlag ? "✓ hasła" : "pisze hasła…"));
       if (p.hasPhone) tags.appendChild(el("span", "tag tag-ok", "📱 kamerka"));
       if (!p.connected) tags.appendChild(el("span", "tag tag-off", "offline"));
@@ -481,14 +501,17 @@ function renderLobby(s) {
   show($("btn-set-time-limit"), s.me.canManage);
 
   const liarPlayersMode = s.mode === "klamca" && s.liarSource === "players";
-  const missing = s.mode === "wskazowka" || s.mode === "piec" || (s.mode === "klamca" && !liarPlayersMode)
+  const missing = s.mode === "wskazowka" || s.mode === "piec" || s.mode === "kto" || (s.mode === "klamca" && !liarPlayersMode)
     ? []
     : s.players.filter((p) => !(liarPlayersMode ? p.liarReady : p.wordsReady)).map((p) => p.nick);
   const host = s.players.find((p) => p.canManage);
   renderModePicker(s);
   liarWordsForm.sync(s);
   fiveTasksForm.sync(s);
-  const minPlayers = s.mode === "klamca" ? (s.liarSource === "host" ? 4 : 3) : 2;
+  ktoQuestionsForm.sync(s);
+  renderFiveCardToggles(s);
+  renderNight($("night-lobby"), s);
+  const minPlayers = s.mode === "klamca" ? (s.liarSource === "host" ? 4 : 3) : s.mode === "kto" ? 3 : 2;
   const allReady = s.players.length >= minPlayers && missing.length === 0;
   let hint = "";
   if (s.players.length < minPlayers) hint = `Czekamy na co najmniej ${minPlayers} graczy`;
@@ -567,6 +590,8 @@ function renderModePicker(s) {
   }
   $("mode-desc").textContent = s.mode === "piec"
     ? "Jak u WK: pytający czyta zadanie na głos, klika START i odpowiadający ma " + fiveSecondsText() + ". Reszta głosuje, czy zaliczyć. Zaliczysz, to przejmujesz pytanie. Nie zaliczysz, tracisz życie. Są karty specjalne, wygrywa ostatni żywy."
+    : s.mode === "kto"
+    ? "Pada pytanie „Kto z nas najprawdopodobniej…”. Każdy po cichu wskazuje jedną osobę. Punkt dostają ci, którzy zagłosowali na osobę wybraną przez większość."
     : s.mode === "wskazowka"
     ? "Ktoś wymyśla skalę (np. zły ↔ dobry kierowca), potem każdy po kolei podpowiada, a reszta ustawia wskazówkę na tarczy. Hasła nie są potrzebne."
     : s.mode === "klamca"
@@ -598,6 +623,22 @@ function renderModePicker(s) {
   }
   show($("liar-master-pick-row"), hostSource && s.liarMasterMode === "fixed");
   fillMasterSelect($("liar-master-pick"), s, !s.me.canManage);
+}
+
+function renderFiveCardToggles(s) {
+  const cards = store.fiveCards || {};
+  const off = s.fiveCardsOff || [];
+  const signature = JSON.stringify([Object.keys(cards), off, s.me.canManage]);
+  patchList($("five-card-toggles"), signature, (box) => {
+    for (const [type, info] of Object.entries(cards)) {
+      const disabled = off.includes(type);
+      const button = el("button", "btn five-card-toggle" + (disabled ? " off" : ""), info.icon + " " + info.name);
+      button.title = info.text + (disabled ? " (wyłączona)" : "");
+      button.disabled = !s.me.canManage;
+      button.onclick = () => act("setFiveCard", { type, enabled: disabled });
+      box.appendChild(button);
+    }
+  });
 }
 
 function fillMasterSelect(select, s, disabled) {
@@ -676,11 +717,31 @@ const liarWordsForm = (() => {
     $("liar-words-status").textContent = status;
     $("liar-words-status").classList.toggle("status-ok", !dirty && Boolean(ready));
     $("btn-save-liar-words").disabled = filled < 5;
+    const stash = stashed();
+    show($("btn-load-liar-words"), Boolean(stash) && JSON.stringify(stash) !== JSON.stringify(list));
   }
 
+  function stashed() {
+    const data = saved.get("liar");
+    return Array.isArray(data) && data.length === rows.length && data.every((entry) => entry && typeof entry.word === "string" && typeof entry.hint === "string") ? data : null;
+  }
+
+  $("btn-load-liar-words").onclick = () => {
+    const stash = stashed();
+    if (!stash) return;
+    stash.forEach((entry, i) => {
+      rows[i].word.value = entry.word.slice(0, 40);
+      rows[i].hint.value = entry.hint.slice(0, 40);
+    });
+    dirty = true;
+    refresh();
+  };
+
   $("btn-save-liar-words").onclick = async () => {
-    const response = await act("setLiarWords", { entries: values() });
+    const entries = values();
+    const response = await act("setLiarWords", { entries });
     if (response.ok) {
+      saved.set("liar", entries);
       dirty = false;
       toast("Hasła zapisane");
       refresh();
@@ -714,33 +775,48 @@ for (const button of document.querySelectorAll(".mode-btn")) {
   button.onclick = () => act("setMode", { mode: button.dataset.mode });
 }
 
-const fiveTasksForm = (() => {
+function linesForm({ input, saveButton, loadButton, status, stash, limit, noun, action, field, stored }) {
   let dirty = false;
-  const input = $("five-tasks-input");
   function list() {
     return input.value.split("\n").map((line) => line.trim()).filter(Boolean);
   }
+  function stashed() {
+    const data = saved.get(stash);
+    return Array.isArray(data) && data.length ? data.filter((line) => typeof line === "string") : null;
+  }
   function refresh() {
-    const count = list().length;
-    const saved = store.state ? (store.state.me.fiveTasks || []).length : 0;
-    $("five-tasks-status").textContent = dirty ? count + " zadań · niezapisane zmiany" : saved ? "✓ Zapisane: " + saved : "";
-    $("btn-save-five-tasks").disabled = !dirty || count > 30;
-    if (count > 30) $("five-tasks-status").textContent = "Maksymalnie 30 zadań";
+    const current = list();
+    const count = current.length;
+    const kept = store.state ? stored(store.state).length : 0;
+    status.textContent = dirty ? count + " " + noun + " · niezapisane zmiany" : kept ? "✓ Zapisane: " + kept : "";
+    saveButton.disabled = !dirty || count > limit;
+    if (count > limit) status.textContent = "Maksymalnie " + limit + " " + noun;
+    const old = stashed();
+    show(loadButton, Boolean(old) && old.join("\n") !== current.join("\n"));
   }
   input.addEventListener("input", () => {
     dirty = true;
     refresh();
   });
-  $("btn-save-five-tasks").onclick = async () => {
-    const response = await act("setFiveTasks", { tasks: list() });
+  saveButton.onclick = async () => {
+    const lines = list();
+    const response = await act(action, { [field]: lines });
     if (response.ok) {
+      if (lines.length) saved.set(stash, lines);
       dirty = false;
-      toast("Zadania zapisane");
+      toast("Zapisane");
       refresh();
     }
   };
+  loadButton.onclick = () => {
+    const old = stashed();
+    if (!old) return;
+    input.value = old.slice(0, limit).join("\n");
+    dirty = true;
+    refresh();
+  };
   function sync(s) {
-    if (!dirty && document.activeElement !== input) input.value = (s.me.fiveTasks || []).join("\n");
+    if (!dirty && document.activeElement !== input) input.value = stored(s).join("\n");
     refresh();
   }
   function reset() {
@@ -748,4 +824,30 @@ const fiveTasksForm = (() => {
     input.value = "";
   }
   return { sync, reset };
-})();
+}
+
+const fiveTasksForm = linesForm({
+  input: $("five-tasks-input"),
+  saveButton: $("btn-save-five-tasks"),
+  loadButton: $("btn-load-five-tasks"),
+  status: $("five-tasks-status"),
+  stash: "five",
+  limit: 30,
+  noun: "zadań",
+  action: "setFiveTasks",
+  field: "tasks",
+  stored: (s) => s.me.fiveTasks || []
+});
+
+const ktoQuestionsForm = linesForm({
+  input: $("kto-questions-input"),
+  saveButton: $("btn-save-kto-questions"),
+  loadButton: $("btn-load-kto-questions"),
+  status: $("kto-questions-status"),
+  stash: "kto",
+  limit: 20,
+  noun: "pytań",
+  action: "setKtoQuestions",
+  field: "questions",
+  stored: (s) => s.me.ktoQuestions || []
+});

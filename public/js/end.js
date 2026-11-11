@@ -8,6 +8,8 @@ function renderEnd(s) {
     admin: "Admin zakończył grę."
   };
   $("end-reason").textContent = reasons[s.endReason] || "";
+  renderNight($("night-end"), s);
+  renderModeVote(s);
   const results = s.results || [];
   const key = results.map((r) => r.id + ":" + r.score).join("|");
   const podium = $("podium");
@@ -67,9 +69,13 @@ function renderEnd(s) {
   });
   show($("awards-box"), summary.awards.length > 0);
   history.replaceChildren();
-  $("history-title").textContent = summary.fiveRounds ? "Pytania" : summary.rounds || summary.liarRounds ? "Rundy" : "Kto miał jakie hasła";
+  $("history-title").textContent = summary.fiveRounds || summary.ktoRounds ? "Pytania" : summary.rounds || summary.liarRounds ? "Rundy" : "Kto miał jakie hasła";
   if (summary.fiveRounds) {
     renderFiveRounds(summary.fiveRounds);
+    return;
+  }
+  if (summary.ktoRounds) {
+    renderKtoRounds(summary.ktoRounds);
     return;
   }
   if (summary.rounds) {
@@ -129,6 +135,67 @@ function findResult(s, id) {
 }
 
 $("btn-to-lobby").onclick = () => act("backToLobby");
+
+function renderNight(box, s) {
+  const night = s.night;
+  show(box, Boolean(night));
+  if (!night) return;
+  patchList(box.querySelector(".night-table"), JSON.stringify(night), (list) => {
+    night.table.forEach((entry, index) => {
+      const row = el("div", "night-row");
+      row.style.setProperty("--pc", entry.color);
+      const points = el("span", "night-points", entry.points + " pkt");
+      if (entry.gain) points.appendChild(el("span", "night-gain", "+" + entry.gain));
+      row.append(
+        el("span", "night-place", (index + 1) + "."),
+        el("span", "night-nick", entry.nick),
+        el("span", "night-wins", "🥇 " + entry.wins + " · gier: " + entry.games),
+        points
+      );
+      list.appendChild(row);
+    });
+  });
+  const info = box.querySelector(".night-info");
+  if (info) info.textContent = "Rozegrane gry: " + night.games + ". Za miejsca 1–3 w każdej grze są 3, 2 i 1 pkt.";
+  show(box.querySelector(".btn-night-reset"), s.me.canManage);
+}
+
+for (const button of document.querySelectorAll(".btn-night-reset")) {
+  button.onclick = () => ask("Wyzerować tabelę wieczoru?", () => act("resetNight"));
+}
+
+function renderModeVote(s) {
+  const votes = s.modeVotes || { counts: {}, mine: null };
+  patchList($("mode-vote-buttons"), JSON.stringify(votes), (box) => {
+    for (const [mode, label] of Object.entries(MODE_LABELS)) {
+      const button = el("button", "btn mode-vote-btn" + (votes.mine === mode ? " selected" : ""), label);
+      if (votes.counts[mode]) button.appendChild(el("span", "mode-vote-count", String(votes.counts[mode])));
+      button.onclick = () => act("voteMode", { mode });
+      box.appendChild(button);
+    }
+  });
+}
+
+function renderKtoRounds(rounds) {
+  const history = $("history");
+  const card = el("div", "history-player");
+  const head = el("div", "history-head");
+  head.append(el("span", "history-nick", "🫵 Pytań: " + rounds.length), el("span", "history-stats", "kto zebrał najwięcej głosów"));
+  const list = el("ol", "history-list");
+  for (const round of rounds) {
+    const item = el("li", "history-item");
+    item.append(
+      el("span", "history-icon", "🫵"),
+      el("span", "history-word", round.question),
+      el("span", "history-author", round.winners ? round.winners + " (" + round.best + "/" + round.total + ")" : "bez głosów"),
+      el("span", "history-time", (round.authorNick ? "pytanie od " + round.authorNick + " · " : "") + round.counts.map((c) => c.nick + " " + c.votes).join(", "))
+    );
+    list.appendChild(item);
+  }
+  card.append(head, list);
+  history.appendChild(card);
+  show($("history-box"), rounds.length > 0);
+}
 
 function renderLiarRounds(rounds) {
   const history = $("history");

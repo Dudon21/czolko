@@ -76,11 +76,26 @@ function updateTile(tile, p, s, leaders) {
     const isMaster = liar && liar.masterId === p.id;
     show(tile.badge, s.activeId === p.id || isMaster);
     tile.badge.textContent = isMaster ? "Prowadzi" : liar && liar.stage === "guess" ? "Zgaduje" : "Mówi";
-    tile.root.classList.toggle("liar-suspect", Boolean(liar && liar.stage === "reveal" && liar.impostorId === p.id));
+    tile.root.classList.toggle("liar-suspect", Boolean(liar && liar.stage === "reveal" && (liar.impostorIds || []).includes(p.id)));
     bindSlot(tile.slot, p);
     return;
   }
   tile.root.classList.remove("liar-suspect");
+  if (s.mode === "kto") {
+    tile.word.dataset.word = "";
+    const label = ktoTileLabel(s, p);
+    if (tile.word.textContent !== label) {
+      tile.word.textContent = label;
+      if (label.includes("+")) motion.restart(tile.word, "word-new");
+    }
+    const picked = Boolean(s.kto && s.kto.winnerIds.includes(p.id));
+    show(tile.badge, picked);
+    tile.badge.textContent = "🫵 To on(a)!";
+    tile.root.classList.toggle("liar-suspect", picked);
+    tile.root.classList.remove("five-out", "five-duel");
+    bindSlot(tile.slot, p);
+    return;
+  }
   tile.root.classList.toggle("five-out", Boolean(s.mode === "piec" && p.out));
   tile.root.classList.toggle("five-duel", Boolean(s.mode === "piec" && s.five && (s.five.askerId === p.id || s.five.answererId === p.id)));
   if (s.mode === "piec") {
@@ -134,7 +149,7 @@ function renderGrid(s, leaders) {
   }
   const spotlight = !helpMode && !fiveMode && s.mode !== "wskazowka" && others.some((p) => p.id === s.activeId);
   grid.classList.toggle("five-mode", fiveMode);
-  grid.classList.toggle("liar-mode", s.mode === "klamca");
+  grid.classList.toggle("liar-mode", s.mode === "klamca" || s.mode === "kto");
   grid.classList.toggle("wave-mode", s.mode === "wskazowka");
   grid.classList.toggle("spotlight", spotlight);
   grid.classList.toggle("help-mode", helpMode);
@@ -362,6 +377,7 @@ function renderGame(s) {
   renderWave(s);
   renderLiar(s);
   renderFive(s);
+  renderKto(s);
   motion.scoreChanges(s);
 }
 

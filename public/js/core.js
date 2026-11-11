@@ -18,6 +18,18 @@ const storage = {
   }
 };
 
+const saved = {
+  key: (name) => `czolko-saved-${name}${PROFILE}`,
+  get(name) {
+    try { return JSON.parse(storage.get(this.key(name))); } catch { return null; }
+  },
+  set(name, value) {
+    storage.set(this.key(name), JSON.stringify(value));
+  }
+};
+
+const MODE_LABELS = { czolko: "🙈 Czółko", wskazowka: "🔮 Wskazówka", klamca: "🕵️ Kłamca", piec: "⏱️ 5 sekund", kto: "🫵 Kto z nas?" };
+
 const THEME_KEY = "czolko-theme";
 
 function applyTheme(theme) {

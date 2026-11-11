@@ -12,7 +12,7 @@ function fiveTileLabel(s, p) {
   const cards = p.cardCount ? "🃏" + (p.cardCount > 1 ? "×" + p.cardCount : "") : "";
   const curses = p.curses.map((type) => fiveCardInfo(type).icon).join("");
   const extra = [cards, curses ? "⚠️" + curses : ""].filter(Boolean).join(" ");
-  const top = p.out ? "💀 odpadł(a)" : fiveHearts(p.lives);
+  const top = p.out ? "👻 duch" : fiveHearts(p.lives);
   return extra ? top + "\n" + extra : top;
 }
 
@@ -37,12 +37,15 @@ function renderFiveHand(s, five) {
   const me = findPlayer(s.me.id);
   const cards = me ? me.cards : [];
   show($("five-hand-box"), cards.length > 0);
+  $("five-hand-title").textContent = me && me.out
+    ? "👻 Jesteś duchem: rzucaj karty na żywych (inni widzą tylko, ile ich masz)"
+    : "🃏 Twoje tajne karty (inni widzą tylko, ile ich masz)";
   const usableCards = cards.map((card) => {
     const info = fiveCardInfo(card.type);
     let usable = five.stage !== "answer";
     if (card.type === "angel") usable = five.stage === "vote" && !five.angelUsed;
     if (card.type === "reverse") usable = five.stage === "ready" && five.answererId === s.me.id && !five.reversed;
-    if (card.type !== "revive" && me.out) usable = false;
+    if (me.out && card.type !== "revive" && !info.ghost) usable = false;
     if (card.type === "ally" && me.lives < 2) usable = false;
     if (info.target && !fiveTargets(s, card.type, s.me.id).length) usable = false;
     return { card, info, usable };
@@ -107,7 +110,7 @@ function renderFive(s) {
   let who;
   if (five.stage === "pick") who = isAsker ? "🎤 Pytasz! Wybierz, kogo" : "🎤 " + asker + " wybiera, kogo pyta";
   else if (five.reversed) who = "🔄 Odwrotka! " + asker + " pyta: " + answerer;
-  else who = "🎤 " + asker + " → " + answerer;
+  else who = (five.final ? "⚔️ Finał · " : "🎤 ") + asker + " → " + answerer;
   $("five-who").textContent = who;
   let task = "";
   if (five.stage === "pick") task = five.last ? (five.last.passed ? "✅ " : "❌ ") + nickOf(five.last.answererId) + (five.last.passed ? " zaliczył(a)" : " nie zaliczył(a)" + (five.last.out ? " i odpada 💀" : "")) : "⏱️ 5 sekund";
@@ -200,6 +203,7 @@ $("five-target-cancel").onclick = () => {
 };
 
 function fiveSecondsText() {
-  const seconds = cfg("fiveAnswerSeconds", 10);
+  const five = store.state && store.state.five;
+  const seconds = five && five.answerSeconds ? five.answerSeconds : cfg("fiveAnswerSeconds", 10);
   return seconds + (seconds >= 2 && seconds <= 4 ? " sekundy" : " sekund");
 }
