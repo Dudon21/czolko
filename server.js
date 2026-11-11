@@ -12,8 +12,12 @@ const { FIVE_CARDS } = require("./modes/five");
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
+const BUILD_ID = process.env.RENDER_GIT_COMMIT || String(Date.now());
 const MAX_ADMIN_ATTEMPTS = 5;
 const MAX_CAMERA_ATTEMPTS = 10;
+const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+const IP_LIMITS = { admin: 5, camera: 20, rooms: 12 };
+const IMAGE_CACHE = "private, max-age=604800, immutable";
 const REACTIONS = ["😂", "🔥", "👏", "😱", "🤦", "🤔", "💀", "❤️"];
 const REACTION_COOLDOWN_MS = 300;
 const CHAT_COOLDOWN_MS = 350;
@@ -31,7 +35,23 @@ app.use(express.static(path.join(__dirname, "public")));
 app.get("/vendor/livekit-client.js", (req, res) => {
   res.sendFile(path.join(__dirname, "node_modules", "livekit-client", "dist", "livekit-client.umd.js"));
 });
-app.get("/config.json", (req, res) => res.json({ video: VIDEO_ENABLED, settings: SETTINGS, fiveCards: FIVE_CARDS }));
+app.get("/config.json", (req, res) => res.json({ video: VIDEO_ENABLED, settings: SETTINGS, fiveCards: FIVE_CARDS, build: BUILD_ID }));
+
+function sendPicture(res, picture) {
+  if (!picture) return res.status(404).end();
+  res.set({ "Content-Type": picture.mime, "Cache-Control": IMAGE_CACHE, "X-Content-Type-Options": "nosniff" }).send(picture.buffer);
+}
+
+app.get("/chat-image/:code/:key", (req, res) => {
+  const room = registry.getRoom(req.params.code);
+  sendPicture(res, room && room.chatImage(req.params.key));
+});
+
+app.get("/avatar/:code/:id/:version", (req, res) => {
+  const room = registry.getRoom(req.params.code);
+  const player = room && room.getPlayer(req.params.id);
+  sendPicture(res, player && player.avatar);
+});
 app.get("/qr.svg", (req, res) => {
   const text = String(req.query.text || "");
   if (!text || text.length > 300) return res.status(400).end();
@@ -102,7 +122,7 @@ registry.on("chat", (room, message) => {
   }
 });
 
-registry.on("avatar", (room, player) => sendToRoom(room, "avatar", { id: player.id, data: player.avatar }));
+registry.on("avatar", (room, player) => sendToRoom(room, "avatar", { id: player.id, data: room.avatarUrl(player) }));
 
 registry.on("wordChanged", (room, player, reason, text) => sendToPlayer(room, player, "wordChanged", { reason, text }));
 
@@ -118,6 +138,32 @@ registry.on("removed", (room, player, reason) => {
   socket.data.session = null;
   if (reason) socket.emit("kicked", { reason });
 });
+
+const attempts = new Map();
+
+function clientIp(socket) {
+  const forwarded = socket.handshake.headers["x-forwarded-for"];
+  return (typeof forwarded === "string" && forwarded.split(",")[0].trim()) || socket.handshake.address || "?";
+}
+
+function attemptEntry(kind, socket) {
+  const key = `${kind}:${clientIp(socket)}`;
+  const now = Date.now();
+  const entry = attempts.get(key);
+  if (entry && entry.resetAt > now) return entry;
+  if (attempts.size > 2000) for (const [name, old] of attempts) if (old.resetAt <= now) attempts.delete(name);
+  const fresh = { count: 0, resetAt: now + ATTEMPT_WINDOW_MS };
+  attempts.set(key, fresh);
+  return fresh;
+}
+
+function tooManyAttempts(kind, socket) {
+  return attemptEntry(kind, socket).count >= IP_LIMITS[kind];
+}
+
+function countAttempt(kind, socket) {
+  attemptEntry(kind, socket).count += 1;
+}
 
 function passwordMatches(input) {
   const given = crypto.createHash("sha256").update(String(input || "")).digest();
@@ -154,7 +200,7 @@ function attach(socket, room, player) {
   player.socketId = socket.id;
   socket.data.session = { code: room.code, playerId: player.id };
   const avatars = {};
-  for (const p of room.players) if (p.avatar) avatars[p.id] = p.avatar;
+  for (const p of room.players) if (p.avatar) avatars[p.id] = room.avatarUrl(p);
   socket.emit("avatars", avatars);
   socket.emit("chat:history", room.chatHistoryFor(player));
   room.setConnected(player, true);
@@ -245,6 +291,17 @@ const ROOM_ACTIONS = {
   "five:redo": (room, player) => room.fiveRedo(player),
   "five:vote": (room, player, { approve }) => room.fiveVote(player, approve === true),
   "five:card": (room, player, { cardId, playerId }) => room.fivePlayCard(player, cardId, playerId),
+  "setFiveCard": (room, player, { type, enabled }) => room.setFiveCard(player, type, enabled === true),
+
+  "setKtoQuestions": (room, player, { questions }) => room.setKtoQuestions(player, questions),
+  "kto:vote": (room, player, { playerId }) => room.ktoVote(player, playerId),
+  "kto:continue": (room, player) => {
+    room.ktoContinue(player, false);
+    room.changed();
+  },
+
+  "voteMode": (room, player, { mode }) => room.voteMode(player, mode),
+  "resetNight": (room, player) => room.resetNight(player),
 
   "admin:forceNext": (room, player) => room.adminForceNext(player),
   "admin:resolveVote": (room, player, { approve }) => room.adminResolveVote(player, approve === true),
@@ -259,6 +316,7 @@ const ROOM_ACTIONS = {
 io.on("connection", (socket) => {
   socket.data.adminAttempts = 0;
   socket.data.cameraAttempts = 0;
+  socket.emit("build", BUILD_ID);
 
   for (const [event, action] of Object.entries(ROOM_ACTIONS)) {
     handle(socket, event, (payload) => {
@@ -268,6 +326,8 @@ io.on("connection", (socket) => {
   }
 
   handle(socket, "createRoom", ({ nick }) => {
+    if (tooManyAttempts("rooms", socket)) fail("Za dużo nowych pokoi naraz. Spróbuj za kilka minut");
+    countAttempt("rooms", socket);
     const room = registry.createRoom();
     let player;
     try {
@@ -311,8 +371,10 @@ io.on("connection", (socket) => {
     const { room, player } = currentSession(socket);
     if (!ADMIN_PASSWORD) fail("Hasło admina nie jest ustawione na serwerze");
     if (socket.data.adminAttempts >= MAX_ADMIN_ATTEMPTS) fail("Za dużo prób. Odśwież stronę");
+    if (tooManyAttempts("admin", socket)) fail("Za dużo prób. Spróbuj za 10 minut");
     if (!passwordMatches(password)) {
       socket.data.adminAttempts += 1;
+      countAttempt("admin", socket);
       fail("Złe hasło");
     }
     room.claimHost(player);
@@ -327,9 +389,11 @@ io.on("connection", (socket) => {
   handle(socket, "cameraJoin", async ({ code, refreshOnly }) => {
     if (!VIDEO_ENABLED) fail("Kamerki nie są skonfigurowane na serwerze");
     if (socket.data.cameraAttempts >= MAX_CAMERA_ATTEMPTS) fail("Za dużo prób. Odśwież stronę");
+    if (tooManyAttempts("camera", socket)) fail("Za dużo prób. Spróbuj za 10 minut");
     const found = registry.findByCameraCode(code);
     if (!found) {
       socket.data.cameraAttempts += 1;
+      countAttempt("camera", socket);
       fail("Nie ma gracza z takim kodem kamerki");
     }
     const { room, player } = found;

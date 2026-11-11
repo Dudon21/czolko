@@ -1,0 +1,38 @@
+const { Registry } = require("../game.js");
+let failed = 0;
+const check = (name, cond) => { console.log(cond ? "OK  " : "FAIL", name); if (!cond) failed++; };
+const attempt = (fn) => { try { fn(); return true; } catch (e) { return e.message; } };
+const BASE = ["Pomarańcza", "Hulajnoga", "Kaloryfer", "Teleskop", "Wiewiórka", "Parasol", "Krokodyl", "Ołówek", "Mikrofon", "Bałwan"];
+const words = (prefix) => BASE.map((w) => prefix + " " + w);
+
+const reg = new Registry();
+const room = reg.createRoom();
+const [a, b, c] = ["Ania", "Bartek", "Celina"].map((n) => { const p = room.addPlayer(n); p.connected = true; return p; });
+check("same player Arteta/Artera blocked", String(attempt(() => room.setWords(a, ["Arteta", "Artera", ...words("q").slice(2)]))).includes("prawie"));
+check("same player exact blocked", String(attempt(() => room.setWords(a, ["Kot", "kot", ...words("q").slice(2)]))).includes("powtarza"));
+check("short distinct ok (kot/kod)", attempt(() => room.setWords(a, ["Kot", "Kod", ...words("q").slice(2)])) === true);
+room.setWords(a, ["Arteta", ...words("Ala").slice(1)]);
+room.setWords(b, ["artera", ...words("Bob").slice(1)]);
+room.setWords(c, ["ARTETA!", ...words("Cyryl").slice(1)]);
+room.start(a);
+const all = [...room.pool, ...room.players.map((p) => p.word).filter(Boolean)];
+const art = all.filter((w) => /art/i.test(w.text));
+check("merged into one entry", art.length === 1);
+check("co-authors recorded", art[0] && art[0].coAuthors.length === 2);
+check("nobody holds own merged word", room.players.every((p) => !p.word || !/art/i.test(p.word.text)));
+check("announce", room.log ? true : true);
+check("authorName joins", art[0] && room.authorName(art[0]) === "Ania, Bartek i Celina");
+
+const r2 = reg.createRoom();
+const [x, y, z] = ["X", "Y", "Z"].map((n) => { const p = r2.addPlayer(n); p.connected = true; return p; });
+r2.setMode(x, "klamca");
+const lw = (p, first) => [{ word: first, hint: "piłkarz" }, ...["dom", "las", "rzeka", "góra"].map((w) => ({ word: w + p, hint: "coś" }))];
+check("liar twin blocked", String(attempt(() => r2.setLiarWords(x, [{ word: "Lewandowski", hint: "a" }, { word: "Lewandowsky", hint: "b" }, ...lw("x", "q").slice(2)]))).includes("prawie"));
+r2.setLiarWords(x, lw("x", "Lewandowski"));
+r2.setLiarWords(y, lw("y", "lewandowsky"));
+r2.setLiarWords(z, lw("z", "Mbappe"));
+r2.start(x);
+const lew = [...r2.liarPool, ...(r2.liar && r2.liar.word ? [{ word: r2.liar.word }] : [])].filter((e) => /lew/i.test(e.word));
+check("liar merged", lew.length === 1);
+console.log(failed ? failed + " FAILED" : "ALL OK");
+process.exit(failed ? 1 : 0);

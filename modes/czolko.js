@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const { fail } = require("../lib/errors");
+const { later } = require("../lib/timers");
 const { UNLIMITED } = require("../lib/constants");
 const { findTwin, twinMessage, joinNames, formatPoints, cleanText } = require("../lib/text");
 const { isAuthorOf, shuffle } = require("../lib/pool");
@@ -87,7 +88,7 @@ module.exports = {
     const activeId = this.activeId;
     const turnMs = this.settings.turnSeconds * 1000;
     this.turnEndsAt = Date.now() + turnMs;
-    this.turnTimer = setTimeout(() => {
+    this.turnTimer = later(() => {
       if (this.phase !== "game" || this.vote || this.help || this.activeId !== activeId) return;
       const player = this.getPlayer(activeId);
       this.announce(`Czas minął! ${player ? player.nick : "Gracz"} traci turę`);
@@ -210,7 +211,7 @@ module.exports = {
       endsAt: Date.now() + this.settings.voteSeconds * 1000,
       timer: null
     };
-    vote.timer = setTimeout(() => {
+    vote.timer = later(() => {
       if (this.vote !== vote) return;
       this.cancelVote("Czas na głosowanie minął");
       this.changed();
@@ -263,7 +264,7 @@ module.exports = {
     this.stopTurnTimer();
     const helpMs = this.settings.helpSeconds * 1000;
     const help = { askerId: player.id, helperId: helper.id, endsAt: Date.now() + helpMs, timer: null };
-    help.timer = setTimeout(() => {
+    help.timer = later(() => {
       if (this.help !== help) return;
       this.endHelpNow("Koniec czasu na pomoc");
       this.changed();

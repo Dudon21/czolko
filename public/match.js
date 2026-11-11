@@ -40,9 +40,10 @@
     const y = normalizeGuess(b);
     if (!x || !y) return String(a).toLocaleLowerCase("pl") === String(b).toLocaleLowerCase("pl");
     if (x === y) return true;
+    if (x[0] !== y[0]) return false;
     if (x.replace(/\D/g, "") !== y.replace(/\D/g, "")) return false;
     const length = Math.min(x.length, y.length);
-    const tolerance = length >= 8 ? 2 : length >= 5 ? 1 : 0;
+    const tolerance = length >= 9 ? 2 : length >= 6 ? 1 : 0;
     return Math.abs(x.length - y.length) <= tolerance && editDistance(x, y) <= tolerance;
   }
 

@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const { fail } = require("../lib/errors");
+const { later } = require("../lib/timers");
 const { joinNames, cleanText, textKey } = require("../lib/text");
 const { normalizeGuess } = require("../public/match");
 const { TASKS } = require("../data/five-tasks");
@@ -7,19 +8,22 @@ const { TASKS } = require("../data/five-tasks");
 const FIVE_MAX_TASKS = 30;
 const FIVE_MAX_TASK = 140;
 const FIVE_MAX_CARDS = 5;
+const FIVE_MIN_SECONDS = 3;
+const FIVE_ABSENT_MS = 20000;
 const FIVE_CARDS = {
   revive: { icon: "🧟", name: "Wskrzeszenie", text: "Przywraca do gry osobę, która odpadła (też ciebie), z 1 życiem", target: "dead" },
-  angel: { icon: "😇", name: "Anioł stróż", text: "Podczas głosowania: odpowiadający dostaje drugie podejście (nowy czas na odpowiedź)", target: null },
-  torpedo: { icon: "💣", name: "Torpeda", text: "Wskazana osoba musi odpowiadać na następne pytanie. Jak nie zaliczy, traci 2 życia", target: "other" },
+  angel: { icon: "😇", name: "Anioł stróż", text: "Podczas głosowania: odpowiadający dostaje drugie podejście (nowy czas na odpowiedź)", target: null, ghost: true },
+  torpedo: { icon: "💣", name: "Torpeda", text: "Wskazana osoba musi odpowiadać na następne pytanie. Jak nie zaliczy, traci 2 życia", target: "other", ghost: true },
   ally: { icon: "🤝", name: "Sojusznik", text: "Oddajesz 1 swoje życie, wskazana osoba dostaje 2", target: "other" },
-  double: { icon: "🔁", name: "Dwa z rzędu", text: "Wskazana osoba odpowiada na 2 następne pytania z rzędu", target: "alive" },
-  english: { icon: "🫖", name: "Po angielsku", text: "Wskazana osoba odpowiada na następne pytanie po angielsku", target: "alive" },
-  disco: { icon: "🎤", name: "Disco polo", text: "Wskazana osoba śpiewa następną odpowiedź w stylu disco polo", target: "alive" },
-  four: { icon: "4️⃣", name: "Cztery zamiast trzech", text: "Wskazana osoba w następnym pytaniu musi podać 4 odpowiedzi", target: "alive" },
+  double: { icon: "🔁", name: "Dwa z rzędu", text: "Wskazana osoba odpowiada na 2 następne pytania z rzędu", target: "alive", ghost: true },
+  english: { icon: "🫖", name: "Po angielsku", text: "Wskazana osoba odpowiada na następne pytanie po angielsku", target: "alive", ghost: true },
+  disco: { icon: "🎤", name: "Disco polo", text: "Wskazana osoba śpiewa następną odpowiedź w stylu disco polo", target: "alive", ghost: true },
+  four: { icon: "4️⃣", name: "Cztery zamiast trzech", text: "Wskazana osoba w następnym pytaniu musi podać 4 odpowiedzi", target: "alive", ghost: true },
   reverse: { icon: "🔄", name: "Odwrotka", text: "Gdy ktoś cię pyta: pytający sam musi odpowiedzieć. Jak nie zaliczy, dostajesz +1 życie", target: null }
 };
 const FIVE_CARD_TYPES = Object.keys(FIVE_CARDS);
 const CURSE_TYPES = ["torpedo", "english", "disco", "four"];
+const GHOST_TYPES = FIVE_CARD_TYPES.filter((type) => FIVE_CARDS[type].ghost);
 
 const taskKey = (text) => normalizeGuess(text) || textKey(text);
 
@@ -42,7 +46,24 @@ const methods = {
 
   clearFive() {
     if (this.five) clearTimeout(this.five.timer);
+    clearTimeout(this.fiveAbsentTimer);
+    this.fiveAbsentTimer = null;
     this.five = null;
+  },
+
+  setFiveCard(player, type, enabled) {
+    this.requireManager(player);
+    this.requirePhase("lobby", "game");
+    if (!FIVE_CARD_TYPES.includes(type)) fail("Nieznana karta");
+    if (enabled) this.fiveCardsOff.delete(type);
+    else this.fiveCardsOff.add(type);
+    const info = FIVE_CARDS[type];
+    this.announce(`🃏 Karta ${info.icon} ${info.name}: ${enabled ? "w grze" : "wyłączona"}`);
+    this.changed();
+  },
+
+  fiveCardPool(types = FIVE_CARD_TYPES) {
+    return types.filter((type) => !this.fiveCardsOff.has(type));
   },
 
   fiveAlive() {
@@ -53,15 +74,90 @@ const methods = {
     player.score = Math.max(0, player.lives);
   },
 
-  randomCard() {
-    return { id: ++this.fiveCardSeq, type: FIVE_CARD_TYPES[crypto.randomInt(FIVE_CARD_TYPES.length)] };
+  randomCard(types) {
+    const pool = this.fiveCardPool(types);
+    if (!pool.length) return null;
+    return { id: ++this.fiveCardSeq, type: pool[crypto.randomInt(pool.length)] };
   },
 
-  giveCard(player) {
+  giveCard(player, types) {
     if (player.cards.length >= FIVE_MAX_CARDS) return null;
-    const card = this.randomCard();
-    player.cards.push(card);
+    const card = this.randomCard(types);
+    if (card) player.cards.push(card);
     return card;
+  },
+
+  fiveAnswerSeconds() {
+    const every = this.settings.fiveSpeedEvery;
+    const drop = every ? Math.floor(this.fiveHistory.length / every) : 0;
+    return Math.max(FIVE_MIN_SECONDS, this.settings.fiveAnswerSeconds - drop);
+  },
+
+  fiveHaunt() {
+    const ghosts = this.players.filter((p) => p.lives <= 0);
+    const gifted = ghosts.filter((ghost) => this.giveCard(ghost, GHOST_TYPES));
+    if (!gifted.length) return;
+    this.fx("fiveGhost", { ids: gifted.map((p) => p.id) });
+    this.announce(`👻 Duchy dostają po karcie do rzucenia na żywych (${gifted.map((p) => p.nick).join(", ")})`);
+  },
+
+  fiveJoin(player) {
+    const alive = this.fiveAlive().filter((p) => p !== player);
+    player.lives = alive.length > 2 ? Math.max(1, Math.min(...alive.map((p) => p.lives))) : 0;
+    player.fiveOut = 0;
+    player.fiveCurses = [];
+    player.fiveStats = { passed: 0, failed: 0, cards: 0 };
+    player.fiveRerolls = 0;
+    player.cards = [];
+    this.fiveSyncScore(player);
+  },
+
+  fiveAfterLives() {
+    const five = this.five;
+    if (this.fiveAlive().length <= 1) return this.finish("lastAlive");
+    if (!five) return;
+    const asker = this.getPlayer(five.askerId);
+    const answerer = this.getPlayer(five.answererId);
+    if (five.stage === "pick" && asker && asker.lives <= 0) return this.startFivePick(null);
+    if (five.stage === "ready" && answerer && answerer.lives <= 0) return this.startFivePick(five.askerId);
+  },
+
+  fiveWatchAsker() {
+    clearTimeout(this.fiveAbsentTimer);
+    this.fiveAbsentTimer = null;
+    const five = this.five;
+    const waiting = (state) => state && this.five === state && this.phase === "game" && this.mode === "piec" && (state.stage === "pick" || state.stage === "ready");
+    if (!waiting(five)) return;
+    const asker = this.getPlayer(five.askerId);
+    if (!asker || asker.connected) return;
+    this.fiveAbsentTimer = later(() => {
+      this.fiveAbsentTimer = null;
+      if (!waiting(five) || five.askerId !== asker.id || asker.connected) return;
+      this.fiveReplaceAsker(asker);
+      this.changed();
+    }, FIVE_ABSENT_MS);
+  },
+
+  fiveReplaceAsker(asker) {
+    const five = this.five;
+    const online = this.players.filter((p) => p.connected && p.id !== asker.id);
+    if (!online.length) return;
+    if (five.stage === "pick") {
+      const next = online.find((p) => p.lives > 0);
+      if (!next) return;
+      this.announce(`⏳ ${asker.nick} zniknął(a), pytanie przejmuje ${next.nick}`);
+      return this.startFivePick(next.id);
+    }
+    const readers = online.filter((p) => p.id !== five.answererId);
+    const reader = readers.find((p) => p.lives > 0) || readers[0];
+    if (!reader) {
+      this.announce(`⏳ ${asker.nick} zniknął(a), zadanie startuje samo`);
+      return this.fiveBeginAnswer();
+    }
+    five.askerId = reader.id;
+    this.activeId = reader.id;
+    this.fx("turn", { playerId: reader.id });
+    this.announce(`⏳ ${asker.nick} zniknął(a), zadanie czyta ${reader.nick}`);
   },
 
   allFiveTasks() {
@@ -109,6 +205,7 @@ const methods = {
     this.fiveForced = [];
     this.fiveOutSeq = 0;
     this.fiveCardSeq = 0;
+    this.fiveFinal = false;
     for (const p of this.players) {
       p.word = null;
       p.helpsUsed = 0;
@@ -140,7 +237,7 @@ const methods = {
     five.endsAt = ms ? Date.now() + ms : 0;
     five.totalMs = ms || 0;
     five.timer = ms
-      ? setTimeout(() => {
+      ? later(() => {
           if (this.five !== five) return;
           callback();
           this.changed();
@@ -195,12 +292,18 @@ const methods = {
       timer: null
     };
     this.activeId = asker.id;
-    const forced = this.fiveForced[0] && this.getPlayer(this.fiveForced[0]);
-    if (forced && forced.id !== asker.id) {
-      this.fx("turn", { playerId: asker.id });
-      return this.fivePrepare(forced);
-    }
     this.fx("turn", { playerId: asker.id });
+    const alive = this.fiveAlive();
+    const duel = alive.length === 2 && alive.includes(asker);
+    if (duel && !this.fiveFinal && this.players.length > 2) {
+      this.fx("fiveFinal", { ids: alive.map((p) => p.id) });
+      this.announce(`⚔️ Finał 1 na 1: ${alive[0].nick} kontra ${alive[1].nick}! Pytacie się na zmianę`);
+    }
+    this.fiveFinal = duel;
+    const forced = this.fiveForced[0] && this.getPlayer(this.fiveForced[0]);
+    if (forced && forced.id !== asker.id) return this.fivePrepare(forced);
+    if (duel) return this.fivePrepare(alive.find((p) => p !== asker));
+    this.fiveWatchAsker();
   },
 
   requireFive(stage) {
@@ -214,6 +317,7 @@ const methods = {
   fiveChoose(player, targetId) {
     const five = this.requireFive("pick");
     if (five.askerId !== player.id) fail("Teraz pyta ktoś inny");
+    if (player.lives <= 0) fail("Odpadłeś, nie możesz pytać");
     const target = this.requireTarget(targetId);
     if (target === player) fail("Nie możesz pytać siebie");
     if (target.lives <= 0) fail("Ta osoba już odpadła");
@@ -232,6 +336,7 @@ const methods = {
     five.stage = "ready";
     const asker = this.getPlayer(five.askerId);
     this.announce(`🎯 ${asker ? asker.nick : "?"} pyta: ${target.nick}`);
+    this.fiveWatchAsker();
   },
 
   fiveTaskAuthors(task) {
@@ -282,6 +387,7 @@ const methods = {
     this.activeId = five.askerId;
     this.fx("reroll", { playerId: player.id });
     this.announce(`↩️ ${player.nick}: jeszcze raz! Pytanie bez oceny, karty dalej działają`);
+    this.fiveWatchAsker();
     this.changed();
   },
 
@@ -290,8 +396,9 @@ const methods = {
     five.stage = "answer";
     five.votes = new Map();
     this.activeId = five.answererId;
-    this.fx("fiveGo", { playerId: five.answererId });
-    this.fiveSchedule(this.settings.fiveAnswerSeconds * 1000, () => this.startFiveVote());
+    five.answerSeconds = this.fiveAnswerSeconds();
+    this.fx("fiveGo", { playerId: five.answererId, seconds: five.answerSeconds });
+    this.fiveSchedule(five.answerSeconds * 1000, () => this.startFiveVote());
   },
 
   startFiveVote() {
@@ -372,6 +479,7 @@ const methods = {
       reversed: five.reversed,
       card: Boolean(card)
     };
+    const secondsBefore = this.fiveAnswerSeconds();
     this.fiveHistory.push({
       round: five.round,
       askerNick: asker ? asker.nick : "?",
@@ -394,6 +502,11 @@ const methods = {
     } else {
       this.announce(`❌ ${name} nie zalicza (${yes}:${no}), −${lost} ❤️${out ? ". Odpada! 💀" : ""}`);
     }
+    const secondsNow = this.fiveAnswerSeconds();
+    if (secondsNow < secondsBefore) this.announce(`⏩ Tempo rośnie! Teraz ${secondsNow} s na odpowiedź`);
+    const ghostEvery = this.settings.fiveGhostEvery;
+    if (ghostEvery && this.fiveHistory.length % ghostEvery === 0) this.fiveHaunt();
+    if (this.fiveAlive().length === 2 && answerer && answerer.lives > 0) nextAskerId = five.answererId;
     this.startFivePick(nextAskerId);
   },
 
@@ -407,7 +520,7 @@ const methods = {
     if (index < 0) fail("Nie masz takiej karty");
     const card = player.cards[index];
     const info = FIVE_CARDS[card.type];
-    if (card.type !== "revive" && player.lives <= 0) fail("Odpadłeś, możesz zagrać tylko Wskrzeszenie");
+    if (player.lives <= 0 && card.type !== "revive" && !info.ghost) fail("Jako duch możesz zagrać tylko Wskrzeszenie i karty na żywych");
     let target = null;
     if (info.target) {
       target = this.requireTarget(targetId);
@@ -478,6 +591,7 @@ const methods = {
     if (type !== "random" && !FIVE_CARD_TYPES.includes(type)) fail("Nieznana karta");
     if (target.cards.length >= FIVE_MAX_CARDS) fail(`${target.nick} ma już maksymalnie ${FIVE_MAX_CARDS} kart`);
     const card = type === "random" ? this.randomCard() : { id: ++this.fiveCardSeq, type };
+    if (!card) fail("Wszystkie karty są wyłączone");
     target.cards.push(card);
     this.fx("fiveGift", { playerId: target.id });
     this.announce(`🎁 Host daje tajną kartę 🃏 graczowi ${target.nick}`);
@@ -550,6 +664,8 @@ const methods = {
       myVote: five.votes.has(viewer.id) ? five.votes.get(viewer.id) : null,
       angelUsed: five.angelUsed,
       redone: five.redone,
+      final: Boolean(this.fiveFinal),
+      answerSeconds: five.stage === "answer" || five.stage === "vote" ? five.answerSeconds || this.fiveAnswerSeconds() : this.fiveAnswerSeconds(),
       last: five.last,
       remainingMs: five.endsAt ? Math.max(0, five.endsAt - Date.now()) : null,
       totalMs: five.totalMs

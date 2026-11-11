@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const { fail } = require("../lib/errors");
+const { later } = require("../lib/timers");
 const { cleanText, textKey } = require("../lib/text");
 const { randomScale } = require("../data/scales");
 
@@ -59,7 +60,7 @@ module.exports = {
       totalMs: this.settings.waveScaleSeconds * 1000,
       timer: null
     };
-    wave.timer = setTimeout(() => {
+    wave.timer = later(() => {
       if (this.wave !== wave || wave.stage !== "scale") return;
       const scale = randomScale(this.usedScales);
       this.announce(`Czas minął! Losuję skalę: ${scale.left} ↔ ${scale.right}`);
@@ -121,7 +122,7 @@ module.exports = {
       totalMs: this.settings.waveClueSeconds * 1000,
       timer: null
     };
-    wave.timer = setTimeout(() => {
+    wave.timer = later(() => {
       if (this.wave !== wave || wave.stage !== "clue") return;
       this.announce(`Czas minął! ${psychic.nick} nie podał(a) podpowiedzi`);
       this.fx("timeout", { playerId: psychic.id });
@@ -175,7 +176,7 @@ module.exports = {
     wave.stage = "guess";
     wave.endsAt = Date.now() + this.settings.waveGuessSeconds * 1000;
     wave.totalMs = this.settings.waveGuessSeconds * 1000;
-    wave.timer = setTimeout(() => {
+    wave.timer = later(() => {
       if (this.wave !== wave || wave.stage !== "guess") return;
       this.waveReveal();
       this.changed();
@@ -273,7 +274,7 @@ module.exports = {
       psychicPoints,
       results: wave.results.map((r) => ({ ...r }))
     });
-    wave.timer = setTimeout(() => {
+    wave.timer = later(() => {
       if (this.wave !== wave) return;
       this.waveContinue(null, true);
       this.changed();

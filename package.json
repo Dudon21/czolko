@@ -1,10 +1,11 @@
 {
   "name": "czolko",
   "version": "1.0.0",
-  "description": "",
+  "description": "Czółko: imprezowe gry przeglądarkowe dla znajomych",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test/run.js"
   },
   "engines": {
     "node": ">=20"
@@ -19,5 +20,8 @@
     "livekit-server-sdk": "^2.19.2",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
   }
 }

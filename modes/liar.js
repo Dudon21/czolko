@@ -1,7 +1,8 @@
 const crypto = require("crypto");
 const { fail } = require("../lib/errors");
+const { later } = require("../lib/timers");
 const { LIAR_MIN_PLAYERS } = require("../lib/constants");
-const { findTwin, twinMessage, cleanText } = require("../lib/text");
+const { findTwin, twinMessage, cleanText, joinNames } = require("../lib/text");
 const { isAuthorOf, shuffle } = require("../lib/pool");
 const { normalizeGuess, guessMatches, similarWords } = require("../public/match");
 
@@ -13,6 +14,7 @@ const LIAR_MAX_HINT = 40;
 const LIAR_MAX_CLUE = 30;
 const LIAR_REVEAL_MS = 20000;
 const LIAR_HINT_CHANCES = [0, 25, 50, 75, 100];
+const LIAR_TWO_MIN_PLAYERS = 5;
 
 module.exports = {
   setLiarSettings(player, settings) {
@@ -83,6 +85,8 @@ module.exports = {
       hint: cleanText(entry && entry.hint, LIAR_MAX_HINT)
     }));
     if (cleaned.some((entry) => !entry.word || !entry.hint)) fail("Uzupełnij wszystkie hasła i podpowiedzi");
+    const symbols = cleaned.find((entry) => !normalizeGuess(entry.word));
+    if (symbols) fail(`Hasło „${symbols.word}” musi zawierać litery albo cyfry`);
     const twin = findTwin(cleaned.map((entry) => entry.word));
     if (twin) fail(twinMessage(twin));
     for (const entry of cleaned) {
@@ -114,7 +118,7 @@ module.exports = {
     liar.endsAt = ms ? Date.now() + ms : 0;
     liar.totalMs = ms || 0;
     liar.timer = ms
-      ? setTimeout(() => {
+      ? later(() => {
           if (this.liar !== liar) return;
           callback();
           this.changed();
@@ -126,7 +130,7 @@ module.exports = {
     this.history = [];
     this.liarHistory = [];
     this.liarRound = 0;
-    this.lastImpostorId = null;
+    this.lastImpostorIds = [];
     this.lastMasterId = null;
     this.liarPool = [];
     let merged = 0;
@@ -159,9 +163,29 @@ module.exports = {
     this.startLiarRound();
   },
 
-  pickImpostor(candidates) {
-    const pool = candidates.length > 1 ? candidates.filter((p) => p.id !== this.lastImpostorId) : candidates;
-    return pool[crypto.randomInt(pool.length)];
+  liarImpostorCount(playerCount) {
+    const from = this.settings.liarTwoFrom;
+    return from > 0 && playerCount >= Math.max(LIAR_TWO_MIN_PLAYERS, from) ? 2 : 1;
+  },
+
+  liarByFreshness(candidates) {
+    const recent = (p) => (this.lastImpostorIds || []).includes(p.id);
+    return shuffle([...candidates]).sort((a, b) => recent(a) - recent(b));
+  },
+
+  pickImpostors(candidates, count) {
+    return this.liarByFreshness(candidates).slice(0, count);
+  },
+
+  isImpostor(playerId) {
+    return Boolean(this.liar && this.liar.impostorIds.includes(playerId));
+  },
+
+  liarImpostorNames() {
+    return joinNames(this.liar.impostorIds.map((id) => {
+      const impostor = this.getPlayer(id);
+      return impostor ? impostor.nick : "?";
+    })) || "?";
   },
 
   startLiarRound() {
@@ -180,14 +204,17 @@ module.exports = {
     }
     const connected = this.players.filter((p) => p.connected);
     if (connected.length < LIAR_MIN_PLAYERS) return this.finish("players");
-    const order = shuffle([...connected]).sort((a, b) => (a.id === this.lastImpostorId) - (b.id === this.lastImpostorId));
-    for (const candidate of order) {
-      const options = this.liarPool.map((entry, index) => ({ entry, index })).filter((o) => !isAuthorOf(o.entry, candidate));
-      if (!options.length) continue;
-      const choice = options[crypto.randomInt(options.length)];
-      this.liarPool.splice(choice.index, 1);
-      this.liar = this.newLiarState({ masterId: null, stage: "clues" });
-      return this.beginClues(choice.entry.word, choice.entry.hint, candidate, choice.entry.authorId);
+    const order = this.liarByFreshness(connected);
+    const wanted = this.liarImpostorCount(connected.length);
+    for (let count = wanted; count >= 1; count--) {
+      const options = shuffle(this.liarPool.map((entry, index) => ({ entry, index })));
+      for (const { entry, index } of options) {
+        const eligible = order.filter((candidate) => !isAuthorOf(entry, candidate));
+        if (eligible.length < count) continue;
+        this.liarPool.splice(index, 1);
+        this.liar = this.newLiarState({ masterId: null, stage: "clues" });
+        return this.beginClues(entry.word, entry.hint, eligible.slice(0, count), entry.authorId);
+      }
     }
     this.finish("pool");
   },
@@ -201,6 +228,8 @@ module.exports = {
       hint: null,
       hintGiven: false,
       impostorId: null,
+      impostorIds: [],
+      caughtId: null,
       authorId: null,
       order: [],
       turn: 0,
@@ -231,31 +260,34 @@ module.exports = {
     const word = cleanText(rawWord, LIAR_MAX_WORD);
     const hint = cleanText(rawHint, LIAR_MAX_HINT);
     if (!word) fail("Wpisz hasło");
+    if (!normalizeGuess(word)) fail("Hasło musi zawierać litery albo cyfry");
     if (hint && guessMatches(hint, word)) fail("Podpowiedź nie może być samym hasłem");
     const candidates = this.liarParticipants().filter((p) => p.connected);
     if (candidates.length < LIAR_MIN_PLAYERS) fail("Za mało połączonych graczy");
-    this.beginClues(word, hint, this.pickImpostor(candidates), player.id);
+    this.beginClues(word, hint, this.pickImpostors(candidates, this.liarImpostorCount(candidates.length)), player.id);
     this.changed();
   },
 
-  beginClues(word, hint, impostor, authorId) {
+  beginClues(word, hint, impostors, authorId) {
     const liar = this.liar;
     liar.word = word;
     liar.hint = hint || null;
     liar.hintGiven = Boolean(hint) && crypto.randomInt(100) < this.liarHintChance;
-    liar.impostorId = impostor.id;
+    liar.impostorIds = impostors.map((p) => p.id);
+    liar.impostorId = liar.impostorIds[0];
     liar.authorId = authorId;
-    this.lastImpostorId = impostor.id;
+    this.lastImpostorIds = [...liar.impostorIds];
     const order = shuffle(this.liarParticipants().filter((p) => p.connected).map((p) => p.id));
-    if (order[0] === impostor.id && order.length > 1) {
-      const swap = 1 + crypto.randomInt(order.length - 1);
+    const honest = order.filter((id) => !liar.impostorIds.includes(id));
+    if (liar.impostorIds.includes(order[0]) && honest.length) {
+      const swap = order.indexOf(honest[crypto.randomInt(honest.length)]);
       [order[0], order[swap]] = [order[swap], order[0]];
     }
     liar.order = order;
     liar.turn = 0;
     liar.stage = "clues";
     this.fx("liarRound", { round: liar.round });
-    this.announce(`🕵️ Runda ${liar.round}! Jeden z was nie zna hasła…`);
+    this.announce(liar.impostorIds.length > 1 ? `🕵️🕵️ Runda ${liar.round}! Dwóch z was nie zna hasła…` : `🕵️ Runda ${liar.round}! Jeden z was nie zna hasła…`);
     this.startClueTurn();
   },
 
@@ -295,7 +327,9 @@ module.exports = {
     if (this.liarSpeakerId() !== player.id) fail("Teraz mówi ktoś inny");
     const text = cleanText(rawText, LIAR_MAX_CLUE);
     if (!text) fail("Wpisz słowo");
-    if (guessMatches(text, liar.word) || normalizeGuess(text).includes(normalizeGuess(liar.word))) fail("Nie możesz podać samego hasła 😉");
+    const secret = normalizeGuess(liar.word);
+    const givesAway = guessMatches(text, liar.word) || Boolean(secret && normalizeGuess(text).includes(secret));
+    if (givesAway && !this.isImpostor(player.id)) fail("Nie możesz podać samego hasła 😉");
     liar.clues.push({ playerId: player.id, text, lap: liar.lap, skipped: false });
     liar.turn += 1;
     this.startClueTurn();
@@ -389,13 +423,14 @@ module.exports = {
     }
     liar.ejectedId = ejectedId;
     const ejected = this.getPlayer(ejectedId);
-    if (ejectedId !== liar.impostorId) {
+    if (!liar.impostorIds.includes(ejectedId)) {
       liar.wrongEject = true;
       this.announce(`😱 Wyrzuciliście ${ejected ? ejected.nick : "?"}, a to nie był kłamca!`);
       return this.finishLiarRound();
     }
     liar.caught = true;
-    const impostor = this.getPlayer(liar.impostorId);
+    liar.caughtId = ejectedId;
+    const impostor = this.getPlayer(ejectedId);
     if (impostor && impostor.connected) {
       liar.stage = "guess";
       this.activeId = impostor.id;
@@ -415,7 +450,7 @@ module.exports = {
     this.requireMode("klamca");
     const liar = this.liar;
     if (!liar || liar.stage !== "guess") fail("To teraz niedostępne");
-    if (liar.impostorId !== player.id) fail("Zgaduje tylko kłamca");
+    if (liar.caughtId !== player.id) fail("Zgaduje tylko złapany kłamca");
     const text = cleanText(rawText, LIAR_MAX_WORD);
     liar.guess = text || "🗣️ na głos";
     liar.guessTyped = Boolean(text);
@@ -430,7 +465,7 @@ module.exports = {
 
   liarJudgeIds() {
     const liar = this.liar;
-    const ids = this.liarParticipants().filter((p) => p.connected && p.id !== liar.impostorId).map((p) => p.id);
+    const ids = this.liarParticipants().filter((p) => p.connected && !liar.impostorIds.includes(p.id)).map((p) => p.id);
     const master = liar.masterId && this.getPlayer(liar.masterId);
     if (master && master.connected) ids.push(master.id);
     return ids;
@@ -467,27 +502,33 @@ module.exports = {
     const points = new Map();
     const add = (id, value) => points.set(id, (points.get(id) || 0) + value);
     const participants = this.liarParticipants();
+    const isLiar = (id) => liar.impostorIds.includes(id);
+    const survived = (id) => liar.wrongEject || id !== liar.caughtId || liar.guessCorrect;
+    const nickFor = (id) => (this.getPlayer(id) || { nick: "?" }).nick;
     if (!liar.escaped) {
       const cfg = this.settings;
-      const crewCount = participants.filter((p) => p.id !== liar.impostorId).length;
-      if (liar.wrongEject) add(liar.impostorId, crewCount);
-      else if (!liar.caught) add(liar.impostorId, cfg.liarSurvive);
-      else if (liar.guessCorrect) add(liar.impostorId, cfg.liarSaved);
-      else for (const p of participants) if (p.id !== liar.impostorId) add(p.id, cfg.liarCaughtCrew);
-      if (cfg.liarVoteBonus) for (const [voterId, targetId] of liar.votes) if (targetId === liar.impostorId && voterId !== liar.impostorId) add(voterId, cfg.liarVoteBonus);
+      const crew = participants.filter((p) => !isLiar(p.id));
+      for (const id of liar.impostorIds) {
+        if (liar.wrongEject) add(id, crew.length);
+        else if (id !== liar.caughtId) add(id, cfg.liarSurvive);
+        else if (liar.guessCorrect) add(id, cfg.liarSaved);
+      }
+      if (liar.caught && !liar.guessCorrect) for (const p of crew) add(p.id, cfg.liarCaughtCrew);
+      if (cfg.liarVoteBonus) for (const [voterId, targetId] of liar.votes) if (isLiar(targetId) && !isLiar(voterId)) add(voterId, cfg.liarVoteBonus);
     }
     for (const [id, value] of points) {
       const player = this.getPlayer(id);
       if (player) player.score += value;
     }
-    const impostor = this.getPlayer(liar.impostorId);
+    const names = this.liarImpostorNames();
+    const many = liar.impostorIds.length > 1;
     liar.results = participants.map((p) => ({
       id: p.id,
       nick: p.nick,
       color: p.color,
       points: points.get(p.id) || 0,
       votedFor: liar.votes.get(p.id) || null,
-      impostor: p.id === liar.impostorId
+      impostor: isLiar(p.id)
     })).sort((a, b) => b.points - a.points);
     liar.stage = "reveal";
     this.activeId = null;
@@ -499,8 +540,9 @@ module.exports = {
       word: liar.word,
       hint: liar.hint,
       hintGiven: liar.hintGiven,
-      impostorId: liar.impostorId,
-      impostorNick: impostor ? impostor.nick : "?",
+      impostorIds: [...liar.impostorIds],
+      impostorNick: names,
+      impostors: liar.impostorIds.map((id) => ({ id, nick: nickFor(id), survived: survived(id) })),
       caught: liar.caught,
       escaped: liar.escaped,
       wrongEject: liar.wrongEject,
@@ -514,11 +556,13 @@ module.exports = {
     });
     this.fx("liarReveal", { caught: liar.caught, guessed: liar.guessCorrect, escaped: liar.escaped });
     let text;
+    const caughtNick = nickFor(liar.caughtId);
+    const partner = joinNames(liar.impostorIds.filter((id) => id !== liar.caughtId).map(nickFor));
     if (liar.escaped) text = "Kłamca uciekł z gry!";
-    else if (liar.wrongEject) text = `😈 ${impostor ? impostor.nick : "?"} był(a) kłamcą i zgarnia punkty! Hasło: ${liar.word}`;
-    else if (!liar.caught) text = `😈 Kłamca ${impostor ? impostor.nick : "?"} wygrywa! Hasło: ${liar.word}`;
-    else if (liar.guessCorrect) text = `😏 ${impostor ? impostor.nick : "?"} zgadł(a) hasło „${liar.word}” i ratuje się!`;
-    else text = `🎉 Kłamca złapany! Hasło: ${liar.word}`;
+    else if (liar.wrongEject) text = many ? `😈 Kłamcami byli ${names} i zgarniają punkty! Hasło: ${liar.word}` : `😈 ${names} był(a) kłamcą i zgarnia punkty! Hasło: ${liar.word}`;
+    else if (!liar.caught) text = many ? `😈 Kłamcy ${names} wygrywają! Hasło: ${liar.word}` : `😈 Kłamca ${names} wygrywa! Hasło: ${liar.word}`;
+    else if (liar.guessCorrect) text = `😏 ${caughtNick} zgadł(a) hasło „${liar.word}” i ratuje się!`;
+    else text = many ? `🎉 Kłamca ${caughtNick} złapany! Drugim był(a) ${partner}. Hasło: ${liar.word}` : `🎉 Kłamca złapany! Hasło: ${liar.word}`;
     this.announce(text);
     this.liarSchedule(LIAR_REVEAL_MS, () => this.liarContinue(null, true));
   },
@@ -561,9 +605,14 @@ module.exports = {
       return this.finish("players");
     }
     if (liar.stage === "setup" && liar.masterId === player.id) return this.startLiarRound();
-    if (liar.impostorId === player.id && liar.stage !== "reveal") {
-      liar.escaped = true;
-      return this.finishLiarRound();
+    if (liar.impostorIds.includes(player.id) && liar.stage !== "reveal") {
+      if (liar.impostorIds.length === 1 || liar.caughtId === player.id) {
+        liar.escaped = true;
+        return this.finishLiarRound();
+      }
+      liar.impostorIds = liar.impostorIds.filter((id) => id !== player.id);
+      liar.impostorId = liar.impostorIds[0];
+      this.announce(`🏃 ${player.nick} był(a) jednym z kłamców i ucieka. Został jeszcze jeden!`);
     }
     if (liar.stage === "clues" && this.liarSpeakerId() === player.id) {
       liar.turn += 1;
@@ -577,9 +626,11 @@ module.exports = {
     const liar = this.liar;
     if (this.mode !== "klamca" || !liar) return null;
     const isMaster = viewer.id === liar.masterId;
-    const isImpostor = viewer.id === liar.impostorId;
+    const isImpostor = liar.impostorIds.includes(viewer.id);
     const revealed = liar.stage === "reveal";
     const started = liar.stage !== "setup";
+    const judging = liar.stage === "guess" || liar.stage === "judge";
+    const shown = isMaster || revealed ? liar.impostorIds : judging ? [liar.caughtId] : isImpostor ? [viewer.id] : [];
     return {
       round: liar.round,
       stage: liar.stage,
@@ -589,7 +640,9 @@ module.exports = {
       word: started && (!isImpostor || revealed) ? liar.word : null,
       hint: isMaster || revealed || (isImpostor && liar.hintGiven) ? liar.hint : null,
       hintGiven: isMaster || revealed || isImpostor ? liar.hintGiven : null,
-      impostorId: isMaster || revealed || isImpostor || liar.stage === "guess" || liar.stage === "judge" ? liar.impostorId : null,
+      impostorId: shown[0] || null,
+      impostorIds: shown,
+      impostorCount: started ? liar.impostorIds.length : 1,
       authorId: revealed ? liar.authorId : null,
       order: liar.order,
       lap: liar.lap,
@@ -626,12 +679,12 @@ module.exports = {
     const nickOf = (id) => (this.getPlayer(id) || { nick: "?" }).nick;
     for (const round of this.liarHistory) {
       if (round.escaped) continue;
-      if (round.wrongEject || !round.caught || round.guessCorrect) survived.set(round.impostorNick, (survived.get(round.impostorNick) || 0) + 1);
+      for (const impostor of round.impostors) if (impostor.survived) survived.set(impostor.nick, (survived.get(impostor.nick) || 0) + 1);
       for (const [voterId, targetId] of round.votes) {
-        if (targetId === round.impostorId) detectives.set(nickOf(voterId), (detectives.get(nickOf(voterId)) || 0) + 1);
+        if (round.impostorIds.includes(targetId) && !round.impostorIds.includes(voterId)) detectives.set(nickOf(voterId), (detectives.get(nickOf(voterId)) || 0) + 1);
       }
       for (const [targetId, count] of round.counts) {
-        if (targetId !== round.impostorId) suspects.set(nickOf(targetId), (suspects.get(nickOf(targetId)) || 0) + count);
+        if (!round.impostorIds.includes(targetId)) suspects.set(nickOf(targetId), (suspects.get(nickOf(targetId)) || 0) + count);
       }
     }
     const top = (map) => [...map.entries()].sort((a, b) => b[1] - a[1])[0];
