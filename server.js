@@ -6,9 +6,9 @@ const { Server } = require("socket.io");
 const QRCode = require("qrcode");
 const { AccessToken, RoomServiceClient } = require("livekit-server-sdk");
 const { Registry, GameError, fail } = require("./game");
-const { randomWords } = require("./words");
-const { SETTINGS } = require("./settings");
-const { FIVE_CARDS } = require("./five");
+const { randomWords } = require("./data/words");
+const { SETTINGS } = require("./lib/settings");
+const { FIVE_CARDS } = require("./modes/five");
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
@@ -50,30 +50,40 @@ function phoneIdentity(player) {
 
 async function createVideoToken(room, identity, name, canSubscribe) {
   const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { identity, name, ttl: "8h" });
-  token.addGrant({
-    roomJoin: true,
-    room: videoRoomName(room),
-    canPublish: true,
-    canSubscribe,
-    canPublishData: false
-  });
+  token.addGrant({ roomJoin: true, room: videoRoomName(room), canPublish: true, canSubscribe, canPublishData: false });
   return token.toJwt();
 }
 
 const server = http.createServer(app);
 const io = new Server(server, { maxHttpBufferSize: 512 * 1024 });
 const registry = new Registry();
+const dirtyRooms = new Set();
 
-function sendToPlayer(player, event, payload) {
+function flushRoom(room) {
+  if (!dirtyRooms.delete(room)) return;
+  const summary = room.phase === "end" ? room.summary() : null;
+  for (const player of room.players) {
+    if (player.socketId) io.to(player.socketId).emit("state", room.viewFor(player, summary));
+  }
+}
+
+function flushAll() {
+  for (const room of [...dirtyRooms]) flushRoom(room);
+}
+
+function sendToPlayer(room, player, event, payload) {
+  flushRoom(room);
   if (player.socketId) io.to(player.socketId).emit(event, payload);
 }
 
 function sendToRoom(room, event, payload) {
-  for (const player of room.players) sendToPlayer(player, event, payload);
+  flushRoom(room);
+  for (const player of room.players) if (player.socketId) io.to(player.socketId).emit(event, payload);
 }
 
 registry.on("change", (room) => {
-  for (const player of room.players) sendToPlayer(player, "state", room.viewFor(player));
+  if (!dirtyRooms.size) setImmediate(flushAll);
+  dirtyRooms.add(room);
 });
 
 registry.on("event", (room, text) => sendToRoom(room, "event", { text }));
@@ -82,20 +92,22 @@ registry.on("fx", (room, payload) => sendToRoom(room, "fx", payload));
 
 registry.on("waveLive", (room, psychicId, payload) => {
   const psychic = room.getPlayer(psychicId);
-  if (psychic) sendToPlayer(psychic, "wave:live", payload);
+  if (psychic) sendToPlayer(room, psychic, "wave:live", payload);
 });
 
 registry.on("chat", (room, message) => {
+  flushRoom(room);
   for (const player of room.players) {
-    if (room.chatVisibleTo(player, message)) sendToPlayer(player, "chat:message", room.chatViewFor(player, message));
+    if (room.chatVisibleTo(player, message)) sendToPlayer(room, player, "chat:message", room.chatViewFor(player, message));
   }
 });
 
 registry.on("avatar", (room, player) => sendToRoom(room, "avatar", { id: player.id, data: player.avatar }));
 
-registry.on("wordChanged", (room, player, reason, text) => sendToPlayer(player, "wordChanged", { reason, text }));
+registry.on("wordChanged", (room, player, reason, text) => sendToPlayer(room, player, "wordChanged", { reason, text }));
 
 registry.on("removed", (room, player, reason) => {
+  flushRoom(room);
   if (livekitRooms) {
     for (const identity of [player.id, phoneIdentity(player)]) {
       livekitRooms.removeParticipant(videoRoomName(room), identity).catch(() => {});
@@ -138,6 +150,7 @@ function attach(socket, room, player) {
       previous.emit("replaced");
     }
   }
+  flushRoom(room);
   player.socketId = socket.id;
   socket.data.session = { code: room.code, playerId: player.id };
   const avatars = {};
@@ -156,8 +169,12 @@ function handle(socket, event, handler) {
     const reply = typeof ack === "function" ? ack : () => {};
     Promise.resolve()
       .then(() => handler(payload && typeof payload === "object" ? payload : {}))
-      .then((result) => reply({ ok: true, ...(result || {}) }))
+      .then((result) => {
+        flushAll();
+        reply({ ok: true, ...(result || {}) });
+      })
       .catch((error) => {
+        flushAll();
         if (error instanceof GameError) {
           reply({ ok: false, error: error.message });
         } else {
@@ -176,9 +193,78 @@ function leavePhone(socket) {
   if (player) room.changePhoneCount(player, -1);
 }
 
+const ROOM_ACTIONS = {
+  "setAvatar": (room, player, { data }) => room.setAvatar(player, data),
+  "setWords": (room, player, { words, starred }) => room.setWords(player, words, starred),
+  "setLimit": (room, player, { limit }) => room.setPointLimit(player, limit),
+  "setTimeLimit": (room, player, { minutes }) => room.setTimeLimit(player, minutes),
+  "setHelpLimit": (room, player, { limit }) => room.setHelpLimit(player, limit),
+  "setMode": (room, player, { mode }) => room.setMode(player, mode),
+  "setSetting": (room, player, { key, value }) => room.setSetting(player, key, value),
+  "resetSettings": (room, player, { mode }) => room.resetSettings(player, mode),
+  "extendRoom": (room, player) => room.extendLifetime(player),
+  "startGame": (room, player) => room.start(player),
+  "backToLobby": (room, player) => room.backToLobby(player),
+  "kick": (room, player, { playerId }) => room.kick(player, playerId),
+
+  "next": (room, player) => room.next(player),
+  "guess": (room, player) => room.guess(player),
+  "pass": (room, player) => room.pass(player),
+  "vote": (room, player, { approve }) => room.castVote(player, approve === true),
+  "revealAuthor": (room, player) => room.revealAuthor(player),
+  "help:request": (room, player, { playerId }) => room.requestHelp(player, playerId),
+  "help:end": (room, player) => room.endHelp(player),
+
+  "wave:scale": (room, player, { left, right }) => room.waveSetScale(player, left, right),
+  "wave:clue": (room, player, { clue }) => room.waveSetClue(player, clue),
+  "wave:move": (room, player, { value }) => room.waveMove(player, value),
+  "wave:lock": (room, player, { value, locked }) => room.waveLock(player, value, locked !== false),
+  "wave:continue": (room, player) => {
+    room.waveContinue(player, false);
+    room.changed();
+  },
+
+  "setLiarSettings": (room, player, { source, hintChance, masterMode }) => room.setLiarSettings(player, { source, hintChance, masterMode }),
+  "setLiarWords": (room, player, { entries }) => room.setLiarWords(player, entries),
+  "liar:master": (room, player, { playerId }) => room.liarChooseMaster(player, playerId),
+  "liar:setup": (room, player, { word, hint }) => room.liarSetup(player, word, hint),
+  "liar:clue": (room, player, { text }) => room.liarClue(player, text),
+  "liar:skip": (room, player) => room.liarEndVote(player),
+  "liar:vote": (room, player, { playerId }) => room.liarVote(player, playerId),
+  "liar:guess": (room, player, { text }) => room.liarGuess(player, text),
+  "liar:judge": (room, player, { approve }) => room.liarJudge(player, approve === true),
+  "liar:continue": (room, player) => {
+    room.liarContinue(player, false);
+    room.changed();
+  },
+
+  "setFiveTasks": (room, player, { tasks }) => room.setFiveTasks(player, tasks),
+  "five:choose": (room, player, { playerId }) => room.fiveChoose(player, playerId),
+  "five:reroll": (room, player) => room.fiveReroll(player),
+  "five:start": (room, player) => room.fiveStart(player),
+  "five:vote": (room, player, { approve }) => room.fiveVote(player, approve === true),
+  "five:card": (room, player, { cardId, playerId }) => room.fivePlayCard(player, cardId, playerId),
+
+  "admin:forceNext": (room, player) => room.adminForceNext(player),
+  "admin:resolveVote": (room, player, { approve }) => room.adminResolveVote(player, approve === true),
+  "admin:score": (room, player, { playerId, delta }) => room.adminAdjustScore(player, playerId, delta),
+  "admin:reroll": (room, player, { playerId }) => room.adminRerollWord(player, playerId),
+  "admin:giveCard": (room, player, { playerId, type }) => room.adminGiveCard(player, playerId, type),
+  "admin:takeCards": (room, player, { playerId }) => room.adminTakeCards(player, playerId),
+  "admin:endGame": (room, player) => room.adminEndGame(player),
+  "admin:restart": (room, player) => room.adminRestart(player)
+};
+
 io.on("connection", (socket) => {
   socket.data.adminAttempts = 0;
   socket.data.cameraAttempts = 0;
+
+  for (const [event, action] of Object.entries(ROOM_ACTIONS)) {
+    handle(socket, event, (payload) => {
+      const { room, player } = currentSession(socket);
+      action(room, player, payload);
+    });
+  }
 
   handle(socket, "createRoom", ({ nick }) => {
     const room = registry.createRoom();
@@ -215,44 +301,9 @@ io.on("connection", (socket) => {
 
   handle(socket, "randomWords", ({ count, exclude }) => ({ words: randomWords(count, exclude) }));
 
-  handle(socket, "setAvatar", ({ data }) => {
-    const { room, player } = currentSession(socket);
-    room.setAvatar(player, data);
-  });
-
-  handle(socket, "setWords", ({ words, starred }) => {
-    const { room, player } = currentSession(socket);
-    room.setWords(player, words, starred);
-  });
-
-  handle(socket, "setLimit", ({ limit }) => {
-    const { room, player } = currentSession(socket);
-    room.setPointLimit(player, limit);
-  });
-
-  handle(socket, "setTimeLimit", ({ minutes }) => {
-    const { room, player } = currentSession(socket);
-    room.setTimeLimit(player, minutes);
-  });
-
-  handle(socket, "revealAuthor", () => {
-    const { room, player } = currentSession(socket);
-    room.revealAuthor(player);
-  });
-
-  handle(socket, "setHelpLimit", ({ limit }) => {
-    const { room, player } = currentSession(socket);
-    room.setHelpLimit(player, limit);
-  });
-
-  handle(socket, "help:request", ({ playerId }) => {
-    const { room, player } = currentSession(socket);
-    room.requestHelp(player, playerId);
-  });
-
-  handle(socket, "help:end", () => {
-    const { room, player } = currentSession(socket);
-    room.endHelp(player);
+  handle(socket, "wave:suggest", () => {
+    const { room } = currentSession(socket);
+    return { scale: room.suggestScale() };
   });
 
   handle(socket, "claimAdmin", ({ password }) => {
@@ -313,216 +364,10 @@ io.on("connection", (socket) => {
     sendToRoom(room, "fx", { type: "reaction", playerId: player.id, emoji });
   });
 
-  handle(socket, "setMode", ({ mode }) => {
-    const { room, player } = currentSession(socket);
-    room.setMode(player, mode);
-  });
-
-  handle(socket, "wave:clue", ({ clue }) => {
-    const { room, player } = currentSession(socket);
-    room.waveSetClue(player, clue);
-  });
-
-  handle(socket, "wave:scale", ({ left, right }) => {
-    const { room, player } = currentSession(socket);
-    room.waveSetScale(player, left, right);
-  });
-
-  handle(socket, "wave:suggest", () => {
-    const { room } = currentSession(socket);
-    return { scale: room.suggestScale() };
-  });
-
-  handle(socket, "wave:move", ({ value }) => {
-    const { room, player } = currentSession(socket);
-    room.waveMove(player, value);
-  });
-
-  handle(socket, "wave:lock", ({ value, locked }) => {
-    const { room, player } = currentSession(socket);
-    room.waveLock(player, value, locked !== false);
-  });
-
-  handle(socket, "wave:continue", () => {
-    const { room, player } = currentSession(socket);
-    room.waveContinue(player, false);
-    room.changed();
-  });
-
-  handle(socket, "setSetting", ({ key, value }) => {
-    const { room, player } = currentSession(socket);
-    room.setSetting(player, key, value);
-  });
-
-  handle(socket, "resetSettings", ({ mode }) => {
-    const { room, player } = currentSession(socket);
-    room.resetSettings(player, mode);
-  });
-
-  handle(socket, "setLiarSettings", ({ source, hintChance, masterMode }) => {
-    const { room, player } = currentSession(socket);
-    room.setLiarSettings(player, { source, hintChance, masterMode });
-  });
-
-  handle(socket, "liar:master", ({ playerId }) => {
-    const { room, player } = currentSession(socket);
-    room.liarChooseMaster(player, playerId);
-  });
-
-  handle(socket, "setLiarWords", ({ entries }) => {
-    const { room, player } = currentSession(socket);
-    room.setLiarWords(player, entries);
-  });
-
-  handle(socket, "liar:setup", ({ word, hint }) => {
-    const { room, player } = currentSession(socket);
-    room.liarSetup(player, word, hint);
-  });
-
-  handle(socket, "liar:clue", ({ text }) => {
-    const { room, player } = currentSession(socket);
-    room.liarClue(player, text);
-  });
-
-  handle(socket, "liar:skip", () => {
-    const { room, player } = currentSession(socket);
-    room.liarEndVote(player);
-  });
-
-  handle(socket, "setFiveTasks", ({ tasks }) => {
-    const { room, player } = currentSession(socket);
-    room.setFiveTasks(player, tasks);
-  });
-
-  handle(socket, "five:choose", ({ playerId }) => {
-    const { room, player } = currentSession(socket);
-    room.fiveChoose(player, playerId);
-  });
-
-  handle(socket, "five:reroll", () => {
-    const { room, player } = currentSession(socket);
-    room.fiveReroll(player);
-  });
-
-  handle(socket, "five:start", () => {
-    const { room, player } = currentSession(socket);
-    room.fiveStart(player);
-  });
-
-  handle(socket, "five:vote", ({ approve }) => {
-    const { room, player } = currentSession(socket);
-    room.fiveVote(player, approve === true);
-  });
-
-  handle(socket, "five:card", ({ cardId, playerId }) => {
-    const { room, player } = currentSession(socket);
-    room.fivePlayCard(player, cardId, playerId);
-  });
-
-  handle(socket, "liar:judge", ({ approve }) => {
-    const { room, player } = currentSession(socket);
-    room.liarJudge(player, approve === true);
-  });
-
-  handle(socket, "liar:vote", ({ playerId }) => {
-    const { room, player } = currentSession(socket);
-    room.liarVote(player, playerId);
-  });
-
-  handle(socket, "liar:guess", ({ text }) => {
-    const { room, player } = currentSession(socket);
-    room.liarGuess(player, text);
-  });
-
-  handle(socket, "liar:continue", () => {
-    const { room, player } = currentSession(socket);
-    room.liarContinue(player, false);
-    room.changed();
-  });
-
-  handle(socket, "startGame", () => {
-    const { room, player } = currentSession(socket);
-    room.start(player);
-  });
-
-  handle(socket, "next", () => {
-    const { room, player } = currentSession(socket);
-    room.next(player);
-  });
-
-  handle(socket, "guess", () => {
-    const { room, player } = currentSession(socket);
-    room.guess(player);
-  });
-
-  handle(socket, "pass", () => {
-    const { room, player } = currentSession(socket);
-    room.pass(player);
-  });
-
-  handle(socket, "vote", ({ approve }) => {
-    const { room, player } = currentSession(socket);
-    room.castVote(player, approve === true);
-  });
-
-  handle(socket, "backToLobby", () => {
-    const { room, player } = currentSession(socket);
-    room.backToLobby(player);
-  });
-
-  handle(socket, "kick", ({ playerId }) => {
-    const { room, player } = currentSession(socket);
-    room.kick(player, playerId);
-  });
-
-  handle(socket, "admin:forceNext", () => {
-    const { room, player } = currentSession(socket);
-    room.adminForceNext(player);
-  });
-
-  handle(socket, "admin:resolveVote", ({ approve }) => {
-    const { room, player } = currentSession(socket);
-    room.adminResolveVote(player, approve === true);
-  });
-
-  handle(socket, "admin:score", ({ playerId, delta }) => {
-    const { room, player } = currentSession(socket);
-    room.adminAdjustScore(player, playerId, delta);
-  });
-
-  handle(socket, "admin:giveCard", ({ playerId, type }) => {
-    const { room, player } = currentSession(socket);
-    room.adminGiveCard(player, playerId, type);
-  });
-
-  handle(socket, "admin:takeCards", ({ playerId }) => {
-    const { room, player } = currentSession(socket);
-    room.adminTakeCards(player, playerId);
-  });
-
-  handle(socket, "admin:reroll", ({ playerId }) => {
-    const { room, player } = currentSession(socket);
-    room.adminRerollWord(player, playerId);
-  });
-
-  handle(socket, "extendRoom", () => {
-    const { room, player } = currentSession(socket);
-    room.extendLifetime(player);
-  });
-
-  handle(socket, "admin:endGame", () => {
-    const { room, player } = currentSession(socket);
-    room.adminEndGame(player);
-  });
-
-  handle(socket, "admin:restart", () => {
-    const { room, player } = currentSession(socket);
-    room.adminRestart(player);
-  });
-
   socket.on("disconnect", () => {
     detach(socket);
     leavePhone(socket);
+    flushAll();
   });
 });
 
