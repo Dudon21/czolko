@@ -1,0 +1,370 @@
+#notes:focus {
+  outline: none;
+}
+
+#screen-end {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.end-card {
+  width: min(900px, 100%);
+}
+
+.end-reason {
+  text-align: center;
+  color: var(--muted);
+  font-size: 1.15rem;
+}
+
+.ranking {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rank-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px 8px 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-left: 8px solid var(--pc);
+  border-radius: 16px;
+}
+
+.rank-item:first-child {
+  background: rgba(255, 210, 63, 0.18);
+}
+
+.rank-item .media-slot {
+  width: 54px;
+  flex: none;
+}
+
+.rank-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.rank-nick {
+  font-weight: 800;
+  font-size: 1.25rem;
+}
+
+.rank-word {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.rank-score {
+  font-weight: 800;
+  font-size: 1.4rem;
+  color: var(--yellow);
+}
+
+.podium {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 14px;
+  margin: 70px 0 10px;
+}
+
+.podium-spot {
+  --pc: #888;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(30%, 220px);
+  animation: podium-rise 0.8s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  animation-delay: var(--delay);
+}
+
+.podium-cam {
+  position: relative;
+  width: 100%;
+  padding: 5px;
+  border-radius: 22px;
+  background: var(--pc);
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.3);
+}
+
+.podium-cam .media-slot {
+  border-radius: 17px;
+}
+
+.podium-1 .podium-cam {
+  box-shadow: 0 0 0 5px var(--yellow), 0 0 40px rgba(255, 210, 63, 0.6), 0 6px 0 5px rgba(0, 0, 0, 0.3);
+}
+
+.podium-crown {
+  position: absolute;
+  top: -46px;
+  left: 50%;
+  transform: translateX(-50%) rotate(-8deg);
+  font-size: 2.8rem;
+  animation: podium-crown-in 0.7s ease-out both;
+  animation-delay: calc(var(--delay) + 0.5s);
+}
+
+.podium-nick {
+  margin: 8px 0 6px;
+  font-weight: 800;
+  font-size: 1.2rem;
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.podium-step {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 8px;
+  border-radius: 14px 14px 4px 4px;
+  background: linear-gradient(180deg, var(--pc), color-mix(in srgb, var(--pc) 55%, #000));
+  color: #fff;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.3);
+}
+
+.podium-1 .podium-step { height: 150px; }
+
+.podium-2 .podium-step { height: 105px; }
+
+.podium-3 .podium-step { height: 75px; }
+
+.podium-1 {
+  width: min(36%, 260px);
+}
+
+.podium-medal {
+  font-size: 2.2rem;
+  line-height: 1;
+}
+
+.podium-score {
+  font-weight: 800;
+  font-size: 1.3rem;
+}
+
+@keyframes podium-rise {
+  0% { transform: translateY(60px); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
+.losers-box,
+.awards-box {
+  margin-top: 18px;
+}
+
+.losers-box.hidden,
+.awards-box.hidden,
+.history-box.hidden {
+  display: none;
+}
+
+.losers-box h2,
+.awards-box h2 {
+  text-align: center;
+}
+
+.losers {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+
+.loser {
+  --pc: #888;
+  width: 110px;
+  text-align: center;
+  filter: grayscale(0.55);
+  opacity: 0.85;
+  animation: loser-drop 0.6s ease-out both;
+  animation-delay: 1.4s;
+}
+
+.loser .media-slot {
+  border: 4px solid var(--pc);
+  border-radius: 14px;
+  transform: rotate(-2deg);
+}
+
+.loser:nth-child(even) .media-slot {
+  transform: rotate(2deg);
+}
+
+.loser-nick {
+  font-weight: 800;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.loser-score {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+@keyframes loser-drop {
+  0% { transform: translateY(-30px); opacity: 0; }
+  70% { transform: translateY(4px); }
+  100% { transform: none; opacity: 0.85; }
+}
+
+.awards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.award {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--yellow) 18%, var(--card));
+  border: 2px solid var(--card-border);
+  animation: panel-in 0.5s ease-out both;
+  animation-delay: var(--delay);
+}
+
+.award-icon {
+  font-size: 1.8rem;
+}
+
+.award-title {
+  font-weight: 800;
+}
+
+.award-text {
+  font-size: 0.92rem;
+  opacity: 0.85;
+}
+
+@media (max-width: 600px) {
+  .podium {
+    gap: 6px;
+  }
+
+  .podium-nick {
+    font-size: 0.95rem;
+  }
+
+  .podium-1 .podium-step { height: 110px; }
+  .podium-2 .podium-step { height: 80px; }
+  .podium-3 .podium-step { height: 56px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .podium-spot,
+  .podium-crown,
+  .loser,
+  .award,
+  .author-in {
+    animation: none;
+  }
+}
+
+@keyframes podium-crown-in {
+  0% { transform: translate(-50%, -30px) rotate(-30deg) scale(0.3); opacity: 0; }
+  100% { transform: translateX(-50%) rotate(-8deg); opacity: 1; }
+}
+
+.history-box {
+  margin: 18px 0 8px;
+}
+
+.history-box h2 {
+  text-align: center;
+}
+
+.history {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.history-player {
+  --pc: #888;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 3px solid var(--pc);
+  background: var(--card);
+  animation: panel-in 0.5s ease-out both;
+}
+
+.history-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.history-nick {
+  font-weight: 800;
+  font-size: 1.1rem;
+  color: var(--pc);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.history-stats {
+  font-size: 0.82rem;
+  opacity: 0.8;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: 1.6em 1fr auto;
+  column-gap: 6px;
+  padding: 4px 0;
+  border-top: 1px dashed var(--card-border);
+}
+
+.history-item:first-child {
+  border-top: none;
+}
+
+.history-icon {
+  grid-row: span 2;
+  font-size: 1.1rem;
+}
+
+.history-word {
+  font-weight: 800;
+}
+
+.history-author {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  text-align: right;
+}
+
+.history-time {
+  grid-column: 2 / -1;
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.history-passed .history-word,
+.history-rerolled .history-word {
+  text-decoration: line-through;
+  opacity: 0.75;
+}

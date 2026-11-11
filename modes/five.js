@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const { fail } = require("../lib/errors");
 const { joinNames, cleanText, textKey } = require("../lib/text");
 const { normalizeGuess } = require("../public/match");
-const { TASKS } = require("../data/tasks5");
+const { TASKS } = require("../data/five-tasks");
 
 const FIVE_MAX_TASKS = 30;
 const FIVE_MAX_TASK = 140;

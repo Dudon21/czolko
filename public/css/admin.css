@@ -1,0 +1,80 @@
+.admin-toggle {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 30;
+  background: var(--red);
+  color: #fff;
+}
+
+.admin-panel {
+  position: fixed;
+  left: 12px;
+  bottom: 60px;
+  z-index: 30;
+  width: min(380px, calc(100vw - 24px));
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border-color: var(--red);
+}
+
+.admin-vote span {
+  color: var(--muted);
+}
+
+.admin-players {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.admin-player {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border-left: 6px solid var(--pc);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.admin-nick {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#admin-login-game input {
+  flex: 1;
+}
+
+.admin-five-cards {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-five-cards select {
+  max-width: 140px;
+  padding: 4px 8px;
+}
+
+.admin-settings {
+  margin-top: 10px;
+}
+
+.admin-settings .advanced-row {
+  gap: 8px;
+}
+
+.mode-five .admin-player {
+  flex-wrap: wrap;
+}
+
+.mode-five .admin-nick {
+  flex-basis: 100%;
+  font-weight: 700;
+}
