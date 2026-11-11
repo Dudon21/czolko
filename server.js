@@ -242,6 +242,7 @@ const ROOM_ACTIONS = {
   "five:choose": (room, player, { playerId }) => room.fiveChoose(player, playerId),
   "five:reroll": (room, player) => room.fiveReroll(player),
   "five:start": (room, player) => room.fiveStart(player),
+  "five:redo": (room, player) => room.fiveRedo(player),
   "five:vote": (room, player, { approve }) => room.fiveVote(player, approve === true),
   "five:card": (room, player, { cardId, playerId }) => room.fivePlayCard(player, cardId, playerId),
 

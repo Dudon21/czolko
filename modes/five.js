@@ -187,6 +187,7 @@ const methods = {
       reversed: false,
       reverseOwnerId: null,
       angelUsed: false,
+      redone: false,
       votes: new Map(),
       last: this.five ? this.five.last : null,
       endsAt: 0,
@@ -261,6 +262,26 @@ const methods = {
     const five = this.requireFive("ready");
     if (five.askerId !== player.id && !this.canManage(player)) fail("Start klika pytający");
     this.fiveBeginAnswer();
+    this.changed();
+  },
+
+  fiveRedo(player) {
+    const five = this.requireFive();
+    if (five.stage !== "answer" && five.stage !== "vote") fail("Jeszcze raz można dać dopiero po starcie");
+    if (five.askerId !== player.id && !this.canManage(player)) fail("Jeszcze raz daje pytający");
+    if (five.redone) fail("To pytanie już raz zaczynaliście od nowa");
+    clearTimeout(five.timer);
+    five.timer = null;
+    five.endsAt = 0;
+    five.totalMs = 0;
+    five.redone = true;
+    five.angelUsed = false;
+    five.votes = new Map();
+    five.stage = "ready";
+    five.task = this.drawFiveTask();
+    this.activeId = five.askerId;
+    this.fx("reroll", { playerId: player.id });
+    this.announce(`↩️ ${player.nick}: jeszcze raz! Pytanie bez oceny, karty dalej działają`);
     this.changed();
   },
 
@@ -528,6 +549,7 @@ const methods = {
       canVote: voters.includes(viewer.id),
       myVote: five.votes.has(viewer.id) ? five.votes.get(viewer.id) : null,
       angelUsed: five.angelUsed,
+      redone: five.redone,
       last: five.last,
       remainingMs: five.endsAt ? Math.max(0, five.endsAt - Date.now()) : null,
       totalMs: five.totalMs

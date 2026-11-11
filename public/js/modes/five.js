@@ -155,6 +155,7 @@ function renderFive(s) {
   if (five.stage === "answer") wait = isAnswerer ? "🗣️ GADAJ!" : "🗣️ " + answerer + " odpowiada!";
   $("five-wait").textContent = wait;
   show($("five-wait"), Boolean(wait));
+  show($("five-redo-box"), (five.stage === "answer" || five.stage === "vote") && (isAsker || s.me.canManage) && !five.redone);
   let banner;
   if (five.stage === "pick") banner = isAsker ? "🎤 Twoje pytanie!" : "🎤 Pyta: " + asker;
   else if (five.stage === "ready") banner = isAnswerer ? "👂 Pytają cię!" : isAsker ? "📖 Przeczytaj zadanie na głos!" : "📖 " + asker + " czyta zadanie";
@@ -189,6 +190,7 @@ window.addEventListener("resize", () => fitFiveGrid());
 
 $("five-reroll").onclick = () => act("five:reroll");
 $("five-start").onclick = () => act("five:start");
+$("five-redo").onclick = () => ask("Jeszcze raz? To pytanie przepada bez oceny, będzie nowe zadanie dla tej samej osoby, a zagrane na nie karty dalej działają.", () => act("five:redo"));
 $("five-yes").onclick = () => act("five:vote", { approve: true });
 $("five-no").onclick = () => act("five:vote", { approve: false });
 
