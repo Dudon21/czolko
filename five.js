@@ -19,7 +19,7 @@ const FIVE_CARDS = {
 const FIVE_CARD_TYPES = Object.keys(FIVE_CARDS);
 const CURSE_TYPES = ["torpedo", "english", "disco", "four"];
 
-module.exports = function fiveMethods({ fail, cleanText, textKey }) {
+module.exports = function fiveMethods({ fail, cleanText, joinNames, textKey }) {
   return {
     setFiveTasks(player, rawTasks) {
       this.requirePhase("lobby");
@@ -62,13 +62,19 @@ module.exports = function fiveMethods({ fail, cleanText, textKey }) {
     },
 
     allFiveTasks() {
-      const seen = new Set();
+      const seen = new Map();
       const all = [];
       const add = (text, authorId) => {
         const key = textKey(text);
-        if (seen.has(key)) return;
-        seen.add(key);
-        all.push({ text, authorId, key });
+        const twin = seen.get(key);
+        if (twin) {
+          if (authorId && !twin.authorIds.includes(authorId)) twin.authorIds.push(authorId);
+          if (authorId && !twin.authorId) twin.authorId = authorId;
+          return;
+        }
+        const task = { text, authorId, authorIds: authorId ? [authorId] : [], key };
+        seen.set(key, task);
+        all.push(task);
       };
       for (const p of this.players) for (const text of p.fiveTasks || []) add(text, p.id);
       for (const text of TASKS) add(text, null);
@@ -90,7 +96,7 @@ module.exports = function fiveMethods({ fail, cleanText, textKey }) {
       if (chance && own.length && listed.length) pool = crypto.randomInt(100) < chance ? own : listed;
       const task = pool[crypto.randomInt(pool.length)];
       this.fiveUsed.add(task.key);
-      return { text: task.text, authorId: task.authorId };
+      return { text: task.text, authorId: task.authorId, authorIds: task.authorIds };
     },
 
     beginFive() {
@@ -108,6 +114,7 @@ module.exports = function fiveMethods({ fail, cleanText, textKey }) {
         p.fiveOut = 0;
         p.fiveCurses = [];
         p.fiveStats = { passed: 0, failed: 0, cards: 0 };
+        p.fiveRerolls = 0;
         p.cards = [];
         for (let i = 0; i < this.settings.fiveStartCards; i++) this.giveCard(p);
         this.fiveSyncScore(p);
@@ -223,9 +230,25 @@ module.exports = function fiveMethods({ fail, cleanText, textKey }) {
       this.announce(`🎯 ${asker ? asker.nick : "?"} pyta: ${target.nick}`);
     },
 
+    fiveTaskAuthors(task) {
+      if (!task || !task.authorId) return null;
+      return joinNames((task.authorIds && task.authorIds.length ? task.authorIds : [task.authorId]).map((id) => {
+        const author = this.getPlayer(id);
+        return author ? author.nick : "?";
+      }));
+    },
+
+    fiveRerollsLeft(player) {
+      const limit = this.settings.fiveRerolls;
+      if (limit >= 99) return null;
+      return Math.max(0, limit - (player.fiveRerolls || 0));
+    },
+
     fiveReroll(player) {
       const five = this.requireFive("ready");
       if (five.askerId !== player.id) fail("Zadanie losuje pytający");
+      if (this.fiveRerollsLeft(player) === 0) fail(this.settings.fiveRerolls ? "Wykorzystałeś już wszystkie zmiany zadania" : "Zmiana zadania jest wyłączona");
+      player.fiveRerolls = (player.fiveRerolls || 0) + 1;
       five.task = this.drawFiveTask();
       this.fx("reroll", { playerId: player.id });
       this.changed();
@@ -330,7 +353,7 @@ module.exports = function fiveMethods({ fail, cleanText, textKey }) {
         askerNick: asker ? asker.nick : "?",
         answererNick: answerer ? answerer.nick : "?",
         task: five.task ? five.task.text : "",
-        authorNick: five.task && five.task.authorId ? (this.getPlayer(five.task.authorId) || { nick: "?" }).nick : null,
+        authorNick: this.fiveTaskAuthors(five.task),
         passed,
         lost,
         out,
@@ -482,14 +505,14 @@ module.exports = function fiveMethods({ fail, cleanText, textKey }) {
       if (this.mode !== "piec" || !five) return null;
       const showTask = five.stage !== "ready" || viewer.id === five.askerId;
       const voters = five.stage === "vote" ? this.fiveVoterIds() : [];
-      const author = five.task && five.task.authorId ? this.getPlayer(five.task.authorId) : null;
+      const authors = this.fiveTaskAuthors(five.task);
       return {
         round: five.round,
         stage: five.stage,
         askerId: five.askerId,
         answererId: five.answererId,
         task: showTask && five.task ? five.task.text : null,
-        taskAuthor: showTask && author ? author.nick : null,
+        taskAuthor: showTask ? authors : null,
         curses: five.curses,
         stake: five.stake,
         reversed: five.reversed,
@@ -514,6 +537,7 @@ module.exports = function fiveMethods({ fail, cleanText, textKey }) {
         lives: p.lives || 0,
         out: this.mode === "piec" && this.phase !== "lobby" && (p.lives || 0) <= 0,
         cardCount: cards.length,
+        rerollsLeft: viewer && viewer.id === p.id ? this.fiveRerollsLeft(p) : null,
         cards: viewer && viewer.id === p.id ? cards.map((card) => ({ id: card.id, type: card.type })) : [],
         curses: p.fiveCurses || []
       };

@@ -115,6 +115,39 @@ function guessMatches(guess, answer) {
   return editDistance(a, b) <= tolerance;
 }
 
+function similarWords(a, b) {
+  const x = normalizeGuess(a);
+  const y = normalizeGuess(b);
+  if (!x || !y) return textKey(String(a)) === textKey(String(b));
+  if (x === y) return true;
+  if (x.replace(/\D/g, "") !== y.replace(/\D/g, "")) return false;
+  const length = Math.min(x.length, y.length);
+  const tolerance = length >= 8 ? 2 : length >= 5 ? 1 : 0;
+  return Math.abs(x.length - y.length) <= tolerance && editDistance(x, y) <= tolerance;
+}
+
+function findTwin(list) {
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      if (similarWords(list[i], list[j])) return [list[i], list[j]];
+    }
+  }
+  return null;
+}
+
+function twinMessage([a, b]) {
+  return textKey(a) === textKey(b) ? `Hasło „${a}” się powtarza` : `„${a}” i „${b}” to prawie to samo hasło`;
+}
+
+function joinNames(names) {
+  if (names.length <= 1) return names[0] || "";
+  return names.slice(0, -1).join(", ") + " i " + names[names.length - 1];
+}
+
+function isAuthorOf(word, player) {
+  return word.authorId === player.id || (word.coAuthors || []).includes(player.id);
+}
+
 function formatPoints(value) {
   return String(Math.round(value * 10) / 10).replace(".", ",");
 }
@@ -340,12 +373,8 @@ class Room {
     if (!Array.isArray(list) || list.length !== WORDS_PER_PLAYER) fail(`Potrzeba dokładnie ${WORDS_PER_PLAYER} haseł`);
     const words = list.map((w) => cleanText(w, MAX_WORD_LENGTH));
     if (words.some((w) => !w)) fail(`Uzupełnij wszystkie ${WORDS_PER_PLAYER} haseł`);
-    const seen = new Set();
-    for (const word of words) {
-      const key = textKey(word);
-      if (seen.has(key)) fail(`Hasło „${word}” się powtarza`);
-      seen.add(key);
-    }
+    const twin = findTwin(words);
+    if (twin) fail(twinMessage(twin));
     const starred = [...new Set(
       (Array.isArray(starredList) ? starredList : [])
         .map(Number)
@@ -423,6 +452,7 @@ class Room {
       holderId: player.id,
       holderNick: player.nick,
       authorId: word.authorId,
+      coAuthorIds: word.coAuthors || [],
       authorNick: this.authorName(word),
       outcome,
       ms: Date.now() - (word.drawnAt || Date.now()),
@@ -468,11 +498,14 @@ class Room {
     const authors = new Map();
     for (const h of this.history) {
       if (h.outcome === "rerolled" || h.outcome === "unfinished" || !h.authorId) continue;
-      const entry = authors.get(h.authorId) || { nick: h.authorNick, passes: 0, ms: 0, count: 0 };
-      if (h.outcome === "passed") entry.passes += 1;
-      entry.ms += h.ms;
-      entry.count += 1;
-      authors.set(h.authorId, entry);
+      for (const id of [h.authorId, ...(h.coAuthorIds || [])]) {
+        const author = this.getPlayer(id);
+        const entry = authors.get(id) || { nick: author ? author.nick : h.authorNick, passes: 0, ms: 0, count: 0 };
+        if (h.outcome === "passed") entry.passes += 1;
+        entry.ms += h.ms;
+        entry.count += 1;
+        authors.set(id, entry);
+      }
     }
     const evil = [...authors.values()].sort((a, b) => b.passes - a.passes || b.ms / b.count - a.ms / a.count)[0];
     if (evil && authors.size > 1) {
@@ -596,12 +629,21 @@ class Room {
     this.pool = [];
     this.history = [];
     this.usedTexts = new Set();
+    let merged = 0;
     for (const p of this.players) {
       p.helpsUsed = 0;
       p.stats = { guessed: 0, passes: 0, reveals: 0 };
       p.words.forEach((text, index) => {
-        this.pool.push({ id: ++this.wordSeq, text, authorId: p.id, custom: !isListedWord(text), starred: (p.starred || []).includes(index) });
+        const starred = (p.starred || []).includes(index);
         this.usedTexts.add(text.toLocaleLowerCase("pl"));
+        const twin = this.pool.find((word) => similarWords(word.text, text));
+        if (twin) {
+          if (!isAuthorOf(twin, p)) twin.coAuthors.push(p.id);
+          twin.starred = twin.starred || starred;
+          merged += 1;
+          return;
+        }
+        this.pool.push({ id: ++this.wordSeq, text, authorId: p.id, coAuthors: [], custom: !isListedWord(text), starred });
       });
       p.score = 0;
       p.word = null;
@@ -620,6 +662,7 @@ class Room {
     this.restartTurnTimer();
     this.hub.scheduleExpiry(this);
     this.fx("start", { playerId: starter.id });
+    if (merged) this.announce(`🧹 Powtórzone hasła scalone w jedno: ${merged}`);
     this.announce(`Gra rozpoczęta! Zaczyna ${starter.nick}`);
   }
 
@@ -647,8 +690,10 @@ class Room {
 
   authorName(word) {
     if (!word.authorId) return GAME_AUTHOR;
-    const author = this.getPlayer(word.authorId);
-    return author ? author.nick : "gracz, który wyszedł";
+    return joinNames([word.authorId, ...(word.coAuthors || [])].map((id) => {
+      const author = this.getPlayer(id);
+      return author ? author.nick : "gracz, który wyszedł";
+    }));
   }
 
   refillPool() {
@@ -664,14 +709,14 @@ class Room {
   }
 
   hasWordFor(player) {
-    return this.pool.some((word) => word.authorId !== player.id);
+    return this.pool.some((word) => !isAuthorOf(word, player));
   }
 
   drawWord(player) {
     if (!this.hasWordFor(player)) this.refillPool();
     const candidates = [];
     this.pool.forEach((word, index) => {
-      if (word.authorId !== player.id) candidates.push(index);
+      if (!isAuthorOf(word, player)) candidates.push(index);
     });
     if (!candidates.length) {
       player.word = null;
@@ -1500,11 +1545,9 @@ class Room {
       hint: cleanText(entry && entry.hint, LIAR_MAX_HINT)
     }));
     if (cleaned.some((entry) => !entry.word || !entry.hint)) fail("Uzupełnij wszystkie hasła i podpowiedzi");
-    const seen = new Set();
+    const twin = findTwin(cleaned.map((entry) => entry.word));
+    if (twin) fail(twinMessage(twin));
     for (const entry of cleaned) {
-      const key = textKey(entry.word);
-      if (seen.has(key)) fail(`Hasło „${entry.word}” się powtarza`);
-      seen.add(key);
       if (guessMatches(entry.hint, entry.word)) fail(`Podpowiedź do „${entry.word}” nie może być samym hasłem`);
     }
     if (!player.liarReady) this.fx("ready", { playerId: player.id });
@@ -1548,13 +1591,22 @@ class Room {
     this.lastImpostorId = null;
     this.lastMasterId = null;
     this.liarPool = [];
+    let merged = 0;
     for (const p of this.players) {
       p.score = 0;
       p.word = null;
       p.helpsUsed = 0;
       p.stats = { guessed: 0, passes: 0, reveals: 0 };
       if (this.liarSource === "players") {
-        for (const entry of p.liarWords) this.liarPool.push({ word: entry.word, hint: entry.hint, authorId: p.id });
+        for (const entry of p.liarWords) {
+          const twin = this.liarPool.find((other) => similarWords(other.word, entry.word));
+          if (twin) {
+            if (!isAuthorOf(twin, p)) twin.coAuthors.push(p.id);
+            merged += 1;
+            continue;
+          }
+          this.liarPool.push({ word: entry.word, hint: entry.hint, authorId: p.id, coAuthors: [] });
+        }
       }
     }
     shuffle(this.liarPool);
@@ -1564,6 +1616,7 @@ class Room {
     this.scheduleGameEnd();
     this.hub.scheduleExpiry(this);
     this.fx("start", { playerId: this.hostId });
+    if (merged) this.announce(`🧹 Powtórzone hasła scalone w jedno: ${merged}`);
     this.announce(this.liarSource === "host" ? "🕵️ Kłamca! Host prowadzi grę" : "🕵️ Kłamca! Hasła losowane z waszych");
     this.startLiarRound();
   }
@@ -1591,7 +1644,7 @@ class Room {
     if (connected.length < LIAR_MIN_PLAYERS) return this.finish("players");
     const order = shuffle([...connected]).sort((a, b) => (a.id === this.lastImpostorId) - (b.id === this.lastImpostorId));
     for (const candidate of order) {
-      const options = this.liarPool.map((entry, index) => ({ entry, index })).filter((o) => o.entry.authorId !== candidate.id);
+      const options = this.liarPool.map((entry, index) => ({ entry, index })).filter((o) => !isAuthorOf(o.entry, candidate));
       if (!options.length) continue;
       const choice = options[crypto.randomInt(options.length)];
       this.liarPool.splice(choice.index, 1);
@@ -2227,7 +2280,7 @@ class Room {
   }
 }
 
-Object.assign(Room.prototype, require("./five")({ fail, cleanText, textKey }));
+Object.assign(Room.prototype, require("./five")({ fail, cleanText, joinNames, textKey: (text) => normalizeGuess(text) || textKey(text) }));
 
 class Registry extends EventEmitter {
   constructor() {

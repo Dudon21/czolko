@@ -1336,15 +1336,9 @@ const wordsForm = (() => {
 
   function refresh() {
     const list = values();
-    const counts = new Map();
-    for (const word of list) {
-      if (!word) continue;
-      const key = word.toLocaleLowerCase("pl");
-      counts.set(key, (counts.get(key) || 0) + 1);
-    }
     let hasDuplicate = false;
     inputs.forEach((input, i) => {
-      const duplicate = list[i] && counts.get(list[i].toLocaleLowerCase("pl")) > 1;
+      const duplicate = list[i] && list.some((other, j) => j !== i && other && similarWords(list[i], other));
       if (duplicate) hasDuplicate = true;
       input.classList.toggle("invalid", Boolean(duplicate));
     });
@@ -1352,7 +1346,7 @@ const wordsForm = (() => {
     const filled = list.filter(Boolean).length;
     const ready = store.state && store.state.me.wordsReady;
     let status = `${filled}/${WORDS_PER_PLAYER} haseł · ⭐ ${stars.size}/${MAX_STARRED}`;
-    if (hasDuplicate) status = "Hasła nie mogą się powtarzać";
+    if (hasDuplicate) status = "Hasła nie mogą się powtarzać (nawet z literówką)";
     else if (dirty) status += " · niezapisane zmiany";
     else if (ready) status = "✓ Hasła zapisane";
     $("words-status").textContent = status;
@@ -3938,7 +3932,11 @@ function renderFive(s) {
     }
   }
   show($("five-ready"), five.stage === "ready" && (isAsker || s.me.canManage));
-  $("five-reroll").disabled = !isAsker;
+  const mine = s.players.find((p) => p.id === me);
+  const rerollsLeft = mine ? mine.rerollsLeft : null;
+  $("five-reroll").disabled = !isAsker || rerollsLeft === 0;
+  $("five-reroll").textContent = "🎲 Inne zadanie" + (rerollsLeft === null || rerollsLeft === undefined ? "" : " (" + rerollsLeft + ")");
+  $("five-reroll").title = rerollsLeft === null || rerollsLeft === undefined ? "Bez limitu" : "Zostało zmian: " + rerollsLeft;
   show($("five-vote"), five.stage === "vote");
   if (five.stage === "vote") {
     $("five-vote-title").textContent = isAnswerer ? "🤞 Reszta ocenia twoją odpowiedź…" : "Zaliczamy " + answerer + "?";
@@ -4086,4 +4084,33 @@ function renderAdminFive(s) {
     }));
   }
   for (const button of document.querySelectorAll("[data-admin=giveCard]")) button.disabled = s.phase !== "game";
+}
+
+function normalizeWord(text) {
+  return String(text || "").toLocaleLowerCase("pl").replace(/ł/g, "l").normalize("NFD").replace(/\p{M}/gu, "").replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function wordDistance(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const current = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = current;
+    }
+  }
+  return row[b.length];
+}
+
+function similarWords(a, b) {
+  const x = normalizeWord(a);
+  const y = normalizeWord(b);
+  if (!x || !y) return a.toLocaleLowerCase("pl") === b.toLocaleLowerCase("pl");
+  if (x === y) return true;
+  if (x.replace(/\D/g, "") !== y.replace(/\D/g, "")) return false;
+  const length = Math.min(x.length, y.length);
+  const tolerance = length >= 8 ? 2 : length >= 5 ? 1 : 0;
+  return Math.abs(x.length - y.length) <= tolerance && wordDistance(x, y) <= tolerance;
 }
