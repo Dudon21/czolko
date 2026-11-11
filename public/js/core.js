@@ -128,7 +128,7 @@ function formatSeconds(total) {
   return total >= 60 ? Math.floor(total / 60) + " min " + (total % 60) + " s" : total + " s";
 }
 
-function liarNick(id) {
+function nickOf(id) {
   return (findPlayer(id) || { nick: "?" }).nick;
 }
 

@@ -191,13 +191,13 @@ const fx = {
         }
         if (event.out) {
           this.busyUntil = performance.now() + 1800;
-          setTimeout(() => this.overlay([el("div", "fx-big", "💀 " + liarNick(id) + " ODPADA!")], "fx-win", 1800), 500);
+          setTimeout(() => this.overlay([el("div", "fx-big", "💀 " + nickOf(id) + " ODPADA!")], "fx-win", 1800), 500);
         } else if (event.card) {
           setTimeout(() => {
             const mine = id === me ? findPlayer(me) : null;
             const newest = mine && mine.cards.length ? fiveCardInfo(mine.cards[mine.cards.length - 1].type) : null;
             if (newest) this.overlay([el("div", "fx-sub", "Dostajesz tajną kartę"), el("div", "fx-big", newest.icon + " " + newest.name), el("div", "fx-sub", newest.text)], "fx-win", 2600);
-            else this.overlay([el("div", "fx-sub", liarNick(id) + " dostaje tajną kartę"), el("div", "fx-big", "🃏")], "fx-win", 1500);
+            else this.overlay([el("div", "fx-sub", nickOf(id) + " dostaje tajną kartę"), el("div", "fx-big", "🃏")], "fx-win", 1500);
           }, 600);
         }
         break;
@@ -215,7 +215,7 @@ const fx = {
         sfx.play("author", 0);
         if (info) {
           this.stamp(event.targetId || id, info.icon, "stamp-author");
-          this.overlay([el("div", "fx-sub", liarNick(id) + " zagrywa"), el("div", "fx-big", info.icon + " " + info.name)], "fx-win", 1600);
+          this.overlay([el("div", "fx-sub", nickOf(id) + " zagrywa"), el("div", "fx-big", info.icon + " " + info.name)], "fx-win", 1600);
         }
         break;
       }

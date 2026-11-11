@@ -102,15 +102,15 @@ function renderFive(s) {
   store.turnTotal = s.turnTotalMs || 5000;
   show($("action-bar"), false);
   show($("help-bar"), false);
-  const asker = liarNick(five.askerId);
-  const answerer = five.answererId ? liarNick(five.answererId) : "";
+  const asker = nickOf(five.askerId);
+  const answerer = five.answererId ? nickOf(five.answererId) : "";
   let who;
   if (five.stage === "pick") who = isAsker ? "🎤 Pytasz! Wybierz, kogo" : "🎤 " + asker + " wybiera, kogo pyta";
   else if (five.reversed) who = "🔄 Odwrotka! " + asker + " pyta: " + answerer;
   else who = "🎤 " + asker + " → " + answerer;
   $("five-who").textContent = who;
   let task = "";
-  if (five.stage === "pick") task = five.last ? (five.last.passed ? "✅ " : "❌ ") + liarNick(five.last.answererId) + (five.last.passed ? " zaliczył(a)" : " nie zaliczył(a)" + (five.last.out ? " i odpada 💀" : "")) : "⏱️ 5 sekund";
+  if (five.stage === "pick") task = five.last ? (five.last.passed ? "✅ " : "❌ ") + nickOf(five.last.answererId) + (five.last.passed ? " zaliczył(a)" : " nie zaliczył(a)" + (five.last.out ? " i odpada 💀" : "")) : "⏱️ 5 sekund";
   else if (five.task) task = five.task;
   else task = isAnswerer ? "👂 Słuchaj! " + asker + " czyta ci zadanie…" : "🤫 " + asker + " czyta zadanie…";
   $("five-task").textContent = task;

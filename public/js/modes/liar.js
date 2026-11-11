@@ -19,7 +19,7 @@ function liarTileLabel(s, p) {
 function renderLiarRole(s) {
   const liar = s.liar;
   const role = $("liar-role");
-  const roleSignature = JSON.stringify([liar.role, liar.stage, liar.word, liar.hint, liar.hintGiven, liarNick(liar.impostorId), liarNick(liar.masterId)]);
+  const roleSignature = JSON.stringify([liar.role, liar.stage, liar.word, liar.hint, liar.hintGiven, nickOf(liar.impostorId), nickOf(liar.masterId)]);
   if (role.dataset.signature === roleSignature) return;
   role.dataset.signature = roleSignature;
   role.className = "liar-role";
@@ -28,13 +28,13 @@ function renderLiarRole(s) {
     role.classList.add("master");
     if (liar.stage === "setup") role.append(el("div", "liar-role-label", "🎬 Prowadzisz rundę"), el("div", "liar-role-word", "Wymyśl hasło"));
     else {
-      role.append(el("div", "liar-role-label", "🎬 Prowadzisz · kłamcą jest " + liarNick(liar.impostorId)), el("div", "liar-role-word", liar.word));
+      role.append(el("div", "liar-role-label", "🎬 Prowadzisz · kłamcą jest " + nickOf(liar.impostorId)), el("div", "liar-role-word", liar.word));
       role.appendChild(el("div", "liar-role-hint", liar.hintGiven ? "Kłamca dostał podpowiedź: " + liar.hint : "Kłamca gra bez podpowiedzi"));
     }
     return;
   }
   if (liar.stage === "setup") {
-    role.append(el("div", "liar-role-label", "🎬 " + liarNick(liar.masterId) + " wymyśla hasło…"));
+    role.append(el("div", "liar-role-label", "🎬 " + nickOf(liar.masterId) + " wymyśla hasło…"));
     return;
   }
   if (liar.role === "impostor" && liar.stage !== "reveal") {
@@ -65,13 +65,13 @@ function renderLiarPanel(s) {
   show($("liar-judge"), stage === "judge");
   show($("liar-reveal"), stage === "reveal");
   let wait = "";
-  if (stage === "setup" && !isMaster) wait = "🎬 " + liarNick(liar.masterId) + " wpisuje hasło…";
-  if (stage === "clues" && !isSpeaker) wait = "🗣️ Mówi " + liarNick(liar.speakerId) + " · kółko " + liar.lap + "/" + liar.laps;
-  if (stage === "guess" && liar.impostorId !== me) wait = "😬 " + liarNick(liar.impostorId) + " był(a) kłamcą! Ostatnia szansa: zgaduje hasło…";
+  if (stage === "setup" && !isMaster) wait = "🎬 " + nickOf(liar.masterId) + " wpisuje hasło…";
+  if (stage === "clues" && !isSpeaker) wait = "🗣️ Mówi " + nickOf(liar.speakerId) + " · kółko " + liar.lap + "/" + liar.laps;
+  if (stage === "guess" && liar.impostorId !== me) wait = "😬 " + nickOf(liar.impostorId) + " był(a) kłamcą! Ostatnia szansa: zgaduje hasło…";
   $("liar-wait").textContent = wait;
   show($("liar-wait"), Boolean(wait));
   if (stage === "judge") {
-    const guesser = liarNick(liar.impostorId);
+    const guesser = nickOf(liar.impostorId);
     $("liar-judge-title").textContent = liar.impostorId === me ? "🤞 Reszta ocenia twój strzał…" : "🤔 " + guesser + " strzela: " + liar.judgeGuess;
     show($("liar-judge-buttons"), liar.canJudge);
     $("liar-judge-yes").classList.toggle("selected", liar.myJudge === true);
@@ -85,7 +85,7 @@ function renderLiarPanel(s) {
     show($("liar-vote-buttons"), liar.canVote);
     show($("liar-vote-skip"), liar.canVote);
     $("liar-vote-skip").classList.toggle("selected", liar.myVote === "skip");
-    const myVote = liar.myVote === "skip" ? "⏭️ pomiń" : liar.myVote ? liarNick(liar.myVote) : null;
+    const myVote = liar.myVote === "skip" ? "⏭️ pomiń" : liar.myVote ? nickOf(liar.myVote) : null;
     $("liar-vote-status").textContent = !liar.canVote
       ? "Gracze gadają i głosują… " + liar.voted.length + "/" + liar.voters
       : myVote
@@ -106,17 +106,17 @@ function renderLiarPanel(s) {
     });
   }
   if (stage === "reveal") {
-    const impostor = liarNick(liar.impostorId);
+    const impostor = nickOf(liar.impostorId);
     let title;
     if (liar.escaped) title = "🏃 Kłamca " + impostor + " uciekł z gry!";
-    else if (liar.wrongEject) title = "😱 Wyrzuciliście " + liarNick(liar.ejectedId) + "! Kłamcą był(a) " + impostor;
+    else if (liar.wrongEject) title = "😱 Wyrzuciliście " + nickOf(liar.ejectedId) + "! Kłamcą był(a) " + impostor;
     else if (!liar.caught) title = "😈 " + impostor + " oszukał(a) wszystkich!";
     else if (liar.guessCorrect) title = "😏 Złapany, ale " + impostor + " zgadł(a) hasło!";
     else title = "🎉 Złapaliście kłamcę: " + impostor + "!";
     $("liar-reveal-title").textContent = title;
     const details = [];
     if (liar.guess) details.push("Strzał kłamcy: " + liar.guess + (liar.guessCorrect ? " ✅" : " ❌"));
-    const votes = (liar.votes || []).map(([voter, target]) => liarNick(voter) + " → " + (target === "skip" ? "⏭️" : liarNick(target)));
+    const votes = (liar.votes || []).map(([voter, target]) => nickOf(voter) + " → " + (target === "skip" ? "⏭️" : nickOf(target)));
     details.push("Kółek: " + liar.lap);
     if (votes.length) details.push("Ostatnie głosy: " + votes.join(", "));
     $("liar-reveal-details").textContent = details.join(" · ");
@@ -127,7 +127,7 @@ function renderLiarPanel(s) {
         row.style.setProperty("--pc", r.color);
         row.append(
           el("span", "wave-result-nick", (r.impostor ? "🕵️ " : "") + r.nick),
-          el("span", "wave-result-value", r.votedFor === "skip" ? "pominął(a)" : r.votedFor ? "głos na " + liarNick(r.votedFor) : "bez głosu"),
+          el("span", "wave-result-value", r.votedFor === "skip" ? "pominął(a)" : r.votedFor ? "głos na " + nickOf(r.votedFor) : "bez głosu"),
           el("span", "wave-result-points", "+" + r.points)
         );
         list.appendChild(row);
@@ -175,7 +175,7 @@ function renderLiar(s) {
   }
   let banner;
   if (liar.stage === "setup") banner = liar.masterId === s.me.id ? "🎬 Wpisz hasło na rundę" : "🎬 Prowadzący wymyśla hasło";
-  else if (liar.stage === "clues") banner = liar.speakerId === s.me.id ? "🗣️ Twoje słowo!" : "🗣️ Mówi: " + liarNick(liar.speakerId);
+  else if (liar.stage === "clues") banner = liar.speakerId === s.me.id ? "🗣️ Twoje słowo!" : "🗣️ Mówi: " + nickOf(liar.speakerId);
   else if (liar.stage === "vote") banner = "🗳️ Dyskusja i głosowanie";
   else if (liar.stage === "guess") banner = "😬 Kłamca zgaduje hasło";
   else if (liar.stage === "judge") banner = "🤔 Zaliczacie strzał?";
