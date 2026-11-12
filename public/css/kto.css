@@ -39,6 +39,29 @@ body:not(.mode-kto) .kto-only {
   cursor: default;
 }
 
+.five-effects {
+  margin: 4px 0 8px;
+  font-weight: 800;
+  color: var(--yellow);
+}
+
+.five-effects.hidden {
+  display: none;
+}
+
+.five-card-btn.selected {
+  box-shadow: 0 0 0 4px var(--yellow), 0 4px 0 rgba(0, 0, 0, 0.25);
+}
+
+#five-trade {
+  margin-top: 8px;
+}
+
+#five-trade.selected {
+  background: var(--yellow);
+  color: #2b2100;
+}
+
 .night-box {
   margin-top: 14px;
 }

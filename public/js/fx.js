@@ -187,7 +187,7 @@ const fx = {
           this.stamp(id, "✅ ZALICZONE", "stamp-ok");
         } else {
           sfx.play("voteFail", 0);
-          this.stamp(id, event.reversed ? "🔄 ✖" : "−" + event.lost + " ❤️", "stamp-fail");
+          this.stamp(id, event.shielded ? "🛡️" : event.reversed ? "🔄 ✖" : "−" + event.lost + " ❤️", "stamp-fail");
         }
         if (event.out) {
           this.busyUntil = performance.now() + 1800;
@@ -203,16 +203,43 @@ const fx = {
         break;
       case "fiveGift":
         sfx.play("refill", 0);
-        this.stamp(id, "🎁", "stamp-author");
+        this.stamp(id, event.own ? "🃏" : "🎁", "stamp-author");
         setTimeout(() => {
           const mine = id === me ? findPlayer(me) : null;
           const newest = mine && mine.cards.length ? fiveCardInfo(mine.cards[mine.cards.length - 1].type) : null;
-          if (newest) this.overlay([el("div", "fx-sub", "🎁 Host daje ci kartę"), el("div", "fx-big", newest.icon + " " + newest.name), el("div", "fx-sub", newest.text)], "fx-win", 2600);
+          if (newest) this.overlay([el("div", "fx-sub", event.own ? "🃏 Dobrana karta" : "🎁 Host daje ci kartę"), el("div", "fx-big", newest.icon + " " + newest.name), el("div", "fx-sub", newest.text)], "fx-win", 2600);
+        }, 300);
+        break;
+      case "fiveSteal":
+        if (id !== me || !event.got) break;
+        setTimeout(() => {
+          const mine = findPlayer(me);
+          const newest = mine && mine.cards.length ? fiveCardInfo(mine.cards[mine.cards.length - 1].type) : null;
+          if (newest) this.overlay([el("div", "fx-sub", "🥷 Ukradzione"), el("div", "fx-big", newest.icon + " " + newest.name), el("div", "fx-sub", newest.text)], "fx-win", 2600);
+        }, 1700);
+        break;
+      case "fiveTrade":
+        sfx.play("roll", 0);
+        if (id !== me) break;
+        setTimeout(() => {
+          const mine = findPlayer(me);
+          const newest = mine && mine.cards.length ? fiveCardInfo(mine.cards[mine.cards.length - 1].type) : null;
+          if (newest) this.overlay([el("div", "fx-sub", "♻️ Nowa karta"), el("div", "fx-big", newest.icon + " " + newest.name), el("div", "fx-sub", newest.text)], "fx-win", 2600);
         }, 300);
         break;
       case "fiveCard": {
         const info = (store.fiveCards || {})[event.card];
         sfx.play("author", 0);
+        if (event.card === "hidden") {
+          this.stamp(id, "🂠", "stamp-author");
+          this.overlay([el("div", "fx-sub", nickOf(id) + " zagrywa"), el("div", "fx-big", "🂠 Tajna karta"), el("div", "fx-sub", "zobaczycie ją, gdy zadziała")], "fx-win", 1600);
+          break;
+        }
+        if (event.activated && info) {
+          this.stamp(id, info.icon, "stamp-author");
+          this.overlay([el("div", "fx-sub", "Tajna karta gracza " + nickOf(id) + " działa!"), el("div", "fx-big", info.icon + " " + info.name)], "fx-win", 1800);
+          break;
+        }
         if (info) {
           this.stamp(event.targetId || id, info.icon, "stamp-author");
           this.overlay([el("div", "fx-sub", nickOf(id) + " zagrywa"), el("div", "fx-big", info.icon + " " + info.name)], "fx-win", 1600);

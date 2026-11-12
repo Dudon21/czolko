@@ -107,11 +107,11 @@ function setup(count, mode, extra) {
 
 {
   const { room, ps } = setup(4, "piec", (room, ps) => {
-    for (const type of ["revive", "angel", "ally", "double", "english", "disco", "four", "reverse"]) room.setFiveCard(ps[0], type, false);
+    for (const type of ["revive", "angel", "ally", "double", "english", "four", "reverse", "letter", "sprint", "vabanque", "bonus", "shield", "mirror", "potato", "thief", "peek", "gag", "draw", "vampire", "roulette"]) room.setFiveCard(ps[0], type, false);
     room.setSetting(ps[0], "fiveStartCards", 3);
   });
   check("only enabled cards are dealt", ps.every((p) => p.cards.length === 3 && p.cards.every((card) => card.type === "torpedo")));
-  check("view lists disabled cards", room.viewFor(ps[0]).fiveCardsOff.length === 8);
+  check("view lists disabled cards", room.viewFor(ps[0]).fiveCardsOff.length === 20);
   check("non-host cannot toggle", attempt(() => room.setFiveCard(ps[1], "angel", true)) !== true);
   room.setFiveCard(ps[0], "torpedo", false);
   check("all cards off: random gift refused", attempt(() => room.adminGiveCard(ps[0], ps[1].id, "random")) !== true);
@@ -140,7 +140,7 @@ function setup(count, mode, extra) {
   check("first one is out", Boolean(ghost) && ghost.cards.length === 0);
   play(true);
   check("tempo drops by a second every two questions", room.viewFor(ps[0]).five.answerSeconds === 9 && events.some((text) => text.includes("Tempo rośnie")));
-  check("ghost gets a card", ghost.cards.length === 1 && ["torpedo", "double", "english", "disco", "four", "angel"].includes(ghost.cards[0].type));
+  check("ghost gets a card", ghost.cards.length === 1 && ["torpedo", "double", "english", "four", "angel", "letter", "sprint", "vabanque", "gag"].includes(ghost.cards[0].type));
   if (ghost.cards[0].type !== "angel") {
     const victim = room.players.find((p) => p.lives > 0);
     const used = attempt(() => room.fivePlayCard(ghost, ghost.cards[0].id, victim.id));

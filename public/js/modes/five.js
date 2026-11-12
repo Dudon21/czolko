@@ -1,4 +1,4 @@
-const fiveUi = { pending: null, stageKey: "" };
+const fiveUi = { pending: null, stageKey: "", trading: false, picked: [] };
 
 function fiveCardInfo(type) {
   return (store.fiveCards || {})[type] || { icon: "🃏", name: type, text: "", target: null };
@@ -11,7 +11,9 @@ function fiveHearts(lives) {
 function fiveTileLabel(s, p) {
   const cards = p.cardCount ? "🃏" + (p.cardCount > 1 ? "×" + p.cardCount : "") : "";
   const curses = p.curses.map((type) => fiveCardInfo(type).icon).join("");
-  const extra = [cards, curses ? "⚠️" + curses : ""].filter(Boolean).join(" ");
+  const secrets = p.secrets ? "🂠" + (p.secrets > 1 ? "×" + p.secrets : "") : "";
+  const gag = p.gag ? "🔇" + p.gag : "";
+  const extra = [cards, secrets, gag, curses ? "⚠️" + curses : ""].filter(Boolean).join(" ");
   const top = p.out ? "👻 duch" : fiveHearts(p.lives);
   return extra ? top + "\n" + extra : top;
 }
@@ -19,45 +21,82 @@ function fiveTileLabel(s, p) {
 const fiveCurseText = {
   torpedo: "💣 Torpeda: nie zaliczy = −2 ❤️",
   english: "🫖 odpowiada po angielsku",
-  disco: "🎤 śpiewa w stylu disco polo",
-  four: "4️⃣ musi podać 4 odpowiedzi"
+  four: "4️⃣ musi podać 4 odpowiedzi",
+  sprint: "⚡ Sprint: połowa czasu",
+  vabanque: "✌️ Va banque: zaliczy = +1 ❤️, nie zaliczy = −2 ❤️"
 };
+
+function fiveCurseLine(five, type) {
+  return type === "letter" ? "🔤 odpowiedzi tylko na literę " + (five.letter || "?") : fiveCurseText[type];
+}
 
 function fiveTargets(s, type, me) {
   const info = fiveCardInfo(type);
   return s.players.filter((p) => {
     if (info.target === "dead") return p.out;
+    if (info.target === "anyone") return p.id !== me && (!info.needsCards || p.cardCount > 0);
     if (p.out) return false;
     if (info.target === "other") return p.id !== me;
     return true;
   });
 }
 
+function fiveCardUsable(s, five, me, card) {
+  const info = fiveCardInfo(card.type);
+  const stage = five.stage;
+  const mine = five.answererId === me.id;
+  if (me.gag) return false;
+  if (info.when === "mine") {
+    if (!mine || (stage !== "ready" && stage !== "answer")) return false;
+  } else if (stage === "answer") {
+    return false;
+  }
+  if (info.when === "before" && stage !== "pick" && stage !== "vote") return false;
+  if (info.when === "vote" && (stage !== "vote" || five.angelUsed)) return false;
+  if (info.when === "asked" && (stage !== "ready" || !mine || five.reversed)) return false;
+  if (me.out && card.type !== "revive" && !info.ghost) return false;
+  if (card.type === "ally" && me.lives < 2) return false;
+  if (info.hidden && me.effects.includes(card.type)) return false;
+  if (info.target && !fiveTargets(s, card.type, me.id).length) return false;
+  return true;
+}
+
+function fiveWhenText(info) {
+  if (info.when === "before") return "Grasz przed wybraniem osoby albo podczas głosowania";
+  if (info.when === "vote") return "Grasz podczas głosowania";
+  if (info.when === "asked") return "Grasz, kiedy ktoś cię pyta (przed startem)";
+  if (info.when === "mine") return "Grasz, kiedy cię pytają, też w trakcie odpowiadania";
+  return "Grasz w dowolnym momencie poza czasem na odpowiedź";
+}
+
 function renderFiveHand(s, five) {
   const me = findPlayer(s.me.id);
   const cards = me ? me.cards : [];
-  show($("five-hand-box"), cards.length > 0);
+  const effects = me ? me.effects : [];
+  show($("five-hand-box"), cards.length > 0 || effects.length > 0);
   $("five-hand-title").textContent = me && me.out
     ? "👻 Jesteś duchem: rzucaj karty na żywych (inni widzą tylko, ile ich masz)"
     : "🃏 Twoje tajne karty (inni widzą tylko, ile ich masz)";
-  const usableCards = cards.map((card) => {
-    const info = fiveCardInfo(card.type);
-    let usable = five.stage !== "answer";
-    if (card.type === "angel") usable = five.stage === "vote" && !five.angelUsed;
-    if (card.type === "reverse") usable = five.stage === "ready" && five.answererId === s.me.id && !five.reversed;
-    if (me.out && card.type !== "revive" && !info.ghost) usable = false;
-    if (card.type === "ally" && me.lives < 2) usable = false;
-    if (info.target && !fiveTargets(s, card.type, s.me.id).length) usable = false;
-    return { card, info, usable };
-  });
-  const handSignature = JSON.stringify([Boolean(store.fiveCards), usableCards.map(({ card, usable }) => [card.id, card.type, usable])]);
+  const effectLines = effects.map((type) => fiveCardInfo(type).icon + " " + fiveCardInfo(type).name);
+  if (me && me.gag) effectLines.push("🔇 knebel jeszcze przez " + me.gag + " pyt.");
+  $("five-effects").textContent = effectLines.length ? "Czeka u ciebie: " + effectLines.join(" · ") : "";
+  show($("five-effects"), effectLines.length > 0);
+  if (cards.length < 2) fiveUi.trading = false;
+  fiveUi.picked = fiveUi.picked.filter((id) => cards.some((card) => card.id === id));
+  show($("five-trade"), cards.length >= 2);
+  $("five-trade").textContent = fiveUi.trading ? "✖ Anuluj wymianę" : "♻️ Wymień 2 karty na 1 losową";
+  $("five-trade").classList.toggle("selected", fiveUi.trading);
+  show($("five-trade-hint"), fiveUi.trading);
+  const usableCards = cards.map((card) => ({ card, info: fiveCardInfo(card.type), usable: fiveCardUsable(s, five, me, card) }));
+  const handSignature = JSON.stringify([Boolean(store.fiveCards), fiveUi.trading, fiveUi.picked, usableCards.map(({ card, usable }) => [card.id, card.type, usable])]);
   patchList($("five-hand"), handSignature, (hand) => {
     for (const { card, info, usable } of usableCards) {
-      const button = el("button", "btn five-card-btn");
-      button.title = info.text;
+      const button = el("button", "btn five-card-btn" + (fiveUi.picked.includes(card.id) ? " selected" : ""));
+      button.title = info.text + " · " + fiveWhenText(info);
       button.append(el("span", "five-card-icon", info.icon), el("span", "five-card-name", info.name), el("span", "five-card-text", info.text));
-      button.disabled = !usable;
+      button.disabled = !fiveUi.trading && !usable;
       button.onclick = () => {
+        if (fiveUi.trading) return fivePickForTrade(card.id);
         if (!info.target) {
           ask("Zagrać kartę " + info.icon + " " + info.name + "?", () => act("five:card", { cardId: card.id }));
           return;
@@ -68,7 +107,8 @@ function renderFiveHand(s, five) {
       hand.appendChild(button);
     }
   });
-  const pending = fiveUi.pending && cards.find((c) => c.id === fiveUi.pending.id) && five.stage !== "answer" ? fiveUi.pending : null;
+  const held = fiveUi.pending && cards.find((c) => c.id === fiveUi.pending.id);
+  const pending = held && !fiveUi.trading && fiveCardUsable(s, five, me, held) ? fiveUi.pending : null;
   fiveUi.pending = pending;
   show($("five-target"), Boolean(pending));
   if (!pending) return;
@@ -90,6 +130,31 @@ function renderFiveHand(s, five) {
       };
       box.appendChild(button);
     }
+  });
+}
+
+function fivePickForTrade(cardId) {
+  const picked = fiveUi.picked;
+  if (picked.includes(cardId)) fiveUi.picked = picked.filter((id) => id !== cardId);
+  else if (picked.length < 2) picked.push(cardId);
+  renderFive(store.state);
+  if (fiveUi.picked.length < 2) return;
+  const me = findPlayer(store.state.me.id);
+  const names = fiveUi.picked.map((id) => {
+    const card = me.cards.find((held) => held.id === id);
+    return card ? fiveCardInfo(card.type).icon + " " + fiveCardInfo(card.type).name : "?";
+  });
+  const cardIds = [...fiveUi.picked];
+  const done = () => {
+    fiveUi.trading = false;
+    fiveUi.picked = [];
+    if (store.state) renderFive(store.state);
+  };
+  $("modal-no").addEventListener("click", done, { once: true });
+  ask("Wymienić " + names.join(" i ") + " na 1 losową kartę?", async () => {
+    $("modal-no").removeEventListener("click", done);
+    await act("five:trade", { cardIds });
+    done();
   });
 }
 
@@ -119,7 +184,7 @@ function renderFive(s) {
   $("five-task").textContent = task;
   $("five-card").classList.toggle("five-live", five.stage === "answer");
   $("five-card").classList.toggle("five-mine", isAnswerer && five.stage !== "pick");
-  const curseLines = five.stage === "pick" ? [] : five.curses.map((type) => fiveCurseText[type]).filter(Boolean);
+  const curseLines = five.stage === "pick" ? [] : five.curses.map((type) => fiveCurseLine(five, type)).filter(Boolean);
   if (five.taskAuthor) curseLines.unshift("📝 zadanie od " + five.taskAuthor);
   $("five-curses").textContent = curseLines.join(" · ");
   show($("five-count"), five.stage === "answer");
@@ -196,6 +261,13 @@ $("five-start").onclick = () => act("five:start");
 $("five-redo").onclick = () => ask("Jeszcze raz? To pytanie przepada bez oceny, będzie nowe zadanie dla tej samej osoby, a zagrane na nie karty dalej działają.", () => act("five:redo"));
 $("five-yes").onclick = () => act("five:vote", { approve: true });
 $("five-no").onclick = () => act("five:vote", { approve: false });
+
+$("five-trade").onclick = () => {
+  fiveUi.trading = !fiveUi.trading;
+  fiveUi.picked = [];
+  fiveUi.pending = null;
+  if (store.state) renderFive(store.state);
+};
 
 $("five-target-cancel").onclick = () => {
   fiveUi.pending = null;

@@ -122,6 +122,8 @@ registry.on("chat", (room, message) => {
   }
 });
 
+registry.on("fivePeek", (room, player, payload) => sendToPlayer(room, player, "five:peek", payload));
+
 registry.on("avatar", (room, player) => sendToRoom(room, "avatar", { id: player.id, data: room.avatarUrl(player) }));
 
 registry.on("wordChanged", (room, player, reason, text) => sendToPlayer(room, player, "wordChanged", { reason, text }));
@@ -291,6 +293,7 @@ const ROOM_ACTIONS = {
   "five:redo": (room, player) => room.fiveRedo(player),
   "five:vote": (room, player, { approve }) => room.fiveVote(player, approve === true),
   "five:card": (room, player, { cardId, playerId }) => room.fivePlayCard(player, cardId, playerId),
+  "five:trade": (room, player, { cardIds }) => room.fiveTrade(player, cardIds),
   "setFiveCard": (room, player, { type, enabled }) => room.setFiveCard(player, type, enabled === true),
 
   "setKtoQuestions": (room, player, { questions }) => room.setKtoQuestions(player, questions),

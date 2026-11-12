@@ -188,6 +188,13 @@ socket.on("avatar", ({ id, data }) => {
 
 socket.on("event", ({ text }) => toast(text));
 
+socket.on("five:peek", ({ nick, cards }) => {
+  const names = (cards || []).map((type) => fiveCardInfo(type).icon + " " + fiveCardInfo(type).name);
+  const text = names.length ? names.join(", ") : "nie ma żadnych kart";
+  fx.overlay([el("div", "fx-sub", "👁️ Karty gracza " + nick), el("div", "fx-big", text)], "fx-win", 5000);
+  toast("👁️ " + nick + " ma: " + text);
+});
+
 socket.on("build", (build) => {
   if (!store.build) store.build = build;
   else if (store.build !== build) show($("update-banner"), true);
