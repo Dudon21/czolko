@@ -187,7 +187,9 @@ socket.on("avatar", ({ id, data }) => {
   media.refreshAll();
 });
 
-socket.on("event", ({ text }) => toast(text));
+socket.on("event", ({ text }) => {
+  if (!fx.skipToast(text)) toast(text);
+});
 
 const peek = { nick: "", names: [] };
 

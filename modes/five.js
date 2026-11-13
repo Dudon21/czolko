@@ -141,7 +141,7 @@ const methods = {
   },
 
   fiveReveal(player, type, text, delay = 0) {
-    this.fx("fiveCard", { playerId: player.id, targetId: null, card: type, activated: true, delay });
+    this.fx("fiveCard", { playerId: player.id, targetId: null, card: type, activated: true, delay, text });
     this.announce(text);
   },
 
@@ -773,7 +773,7 @@ const methods = {
       const lost = this.fiveLoseLife(unlucky, 1);
       text = `🎲 Ruletka od ${player.nick} trafia w: ${unlucky.nick} −${lost} ❤️${lost && unlucky.lives <= 0 ? ". Odpada! 💀" : ""}`;
     }
-    this.fx("fiveCard", { playerId: player.id, targetId: target ? victim.id : null, card: info.hidden ? "hidden" : type });
+    this.fx("fiveCard", { playerId: player.id, targetId: target ? victim.id : null, card: info.hidden ? "hidden" : type, text });
     for (const [owner, kind, line, delay] of reveals) this.fiveReveal(owner, kind, line, delay);
     this.announce(text);
     if (info.hostile && target && target !== player) this.fiveBluff(target, 1700);

@@ -19,6 +19,30 @@ const fx = {
     return node;
   },
 
+  feedTexts: new Set(),
+
+  feed(icon, text, label, kind) {
+    let box = $("card-feed");
+    if (!box) {
+      box = el("div", "card-feed");
+      box.id = "card-feed";
+      document.body.appendChild(box);
+    }
+    while (text.startsWith(icon)) text = text.slice(icon.length).trim();
+    const item = el("div", "feed-item " + kind);
+    const body = el("div", "feed-body");
+    body.append(el("span", "feed-label", label), el("span", "feed-text", text));
+    item.append(el("span", "feed-icon", icon), body);
+    box.appendChild(item);
+    while (box.children.length > 5) box.firstChild.remove();
+    setTimeout(() => item.classList.add("feed-out"), 6000);
+    setTimeout(() => item.remove(), 6500);
+  },
+
+  skipToast(text) {
+    return this.feedTexts.delete(text);
+  },
+
   inGame() {
     return !$("screen-game").classList.contains("hidden");
   },
@@ -230,23 +254,23 @@ const fx = {
       case "fiveCard": {
         const info = (store.fiveCards || {})[event.card];
         sfx.play("author", 0);
+        if (event.text) this.feedTexts.add(event.text);
         if (event.card === "hidden") {
-          this.stamp(id, "🂠", "stamp-author");
-          this.overlay([el("div", "fx-sub", nickOf(id) + " zagrywa"), el("div", "fx-big", "🂠 Tajna karta"), el("div", "fx-sub", "zobaczycie ją, gdy zadziała")], "fx-win", 1600);
+          this.stamp(event.targetId || id, "🂠", "stamp-author");
+          this.feed("🂠", event.text || nickOf(id) + " zagrywa tajną kartę", "Tajna karta (zobaczycie, gdy zadziała)", "feed-hidden");
           break;
         }
         if (event.activated && info) {
           setTimeout(() => {
+            sfx.play("author", 0);
             this.stamp(id, info.icon, "stamp-author");
-            const lines = [el("div", "fx-sub", "Tajna karta gracza " + nickOf(id) + (info.bluff ? " odsłonięta!" : " działa!")), el("div", "fx-big", info.icon + " " + info.name)];
-            if (info.bluff) lines.push(el("div", "fx-sub", "…i nic nie robi 😎"));
-            this.overlay(lines, "fx-win", info.bluff ? 2400 : 1800);
+            this.feed(info.icon, event.text || "Tajna karta " + nickOf(id) + ": " + info.name, info.bluff ? "Blef! Nic nie robi 😎" : "Tajna karta działa", "feed-active");
           }, event.delay || 0);
           break;
         }
         if (info) {
           this.stamp(event.targetId || id, info.icon, "stamp-author");
-          this.overlay([el("div", "fx-sub", nickOf(id) + " zagrywa"), el("div", "fx-big", info.icon + " " + info.name)], "fx-win", 1600);
+          this.feed(info.icon, event.text || nickOf(id) + " zagrywa " + info.name, "Zagrana karta", "feed-play");
         }
         break;
       }
