@@ -18,7 +18,7 @@ const MAX_CAMERA_ATTEMPTS = 10;
 const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
 const IP_LIMITS = { admin: 5, camera: 20, rooms: 12 };
 const IMAGE_CACHE = "private, max-age=604800, immutable";
-const REACTIONS = ["😂", "🔥", "👏", "😱", "🤦", "🤔", "💀", "❤️"];
+const REACTIONS = ["😂", "🔥", "👏", "😱", "🤦", "🤔", "💀", "❤️", "🎣", "🐟"];
 const REACTION_COOLDOWN_MS = 300;
 const CHAT_COOLDOWN_MS = 350;
 const CHAT_IMAGE_COOLDOWN_MS = 2500;

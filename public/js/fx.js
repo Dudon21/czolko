@@ -4,7 +4,7 @@ const ROLL_REVEAL_FROM = 0.6;
 const SCRAMBLE_CHARS = "#$%&@*?!+=<>{}[]/\~^";
 const SECRET_DECOYS = ["???", "?!?", "¿??", "?¿?", "??¿", "!??", "??!", "???"];
 
-const REACTIONS = ["😂", "🔥", "👏", "😱", "🤦", "🤔", "💀", "❤️"];
+const REACTIONS = ["😂", "🔥", "👏", "😱", "🤦", "🤔", "💀", "❤️", "🎣", "🐟"];
 
 const fx = {
   busyUntil: 0,
