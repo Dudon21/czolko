@@ -92,15 +92,15 @@ const finish = (room, pass) => {
   check("fx hides the card type", effects.filter((e) => e.type === "fiveCard").every((e) => e.card === "hidden"));
   check("others see only a count", room.viewFor(b).players.find((p) => p.id === a.id).secrets === 2 && room.viewFor(b).players.find((p) => p.id === a.id).effects.length === 0);
   check("owner sees which ones", room.viewFor(a).players.find((p) => p.id === a.id).effects.length === 2);
-  check("same secret card twice refused", attempt(() => room.fivePlayCard(a, give(a, "shield"))) !== true);
+  check("same secret card stacks", attempt(() => room.fivePlayCard(a, give(a, "shield"))) === true && a.fiveEffects.shield === 2);
   room.fiveChoose(asker, a.id);
   check("extra time only before a player is chosen", attempt(() => room.fivePlayCard(b, give(b, "bonus"))) !== true);
   room.fiveStart(asker);
   check("extra time adds three seconds and shows up", room.five.answerSeconds === 13 && events.some((text) => text.includes("Dogrywka")));
   const lives = a.lives;
   finish(room, false);
-  check("shield saves the life and shows up", a.lives === lives && events.some((text) => text.includes("Tarcza")) && !a.fiveEffects.shield);
-  check("shield is single use", room.viewFor(b).players.find((p) => p.id === a.id).secrets === 0);
+  check("shield saves the life and shows up", a.lives === lives && events.some((text) => text.includes("Tarcza")) && a.fiveEffects.shield === 1);
+  check("one shield used, the second still waits", room.viewFor(b).players.find((p) => p.id === a.id).secrets === 1);
 }
 
 {
@@ -218,6 +218,86 @@ const finish = (room, pass) => {
   room.fiveChoose(asker, a.id);
   finish(room, true);
   check("passing keeps the legendary card hidden", a.fiveEffects.legend && !events.some((text) => text.includes("Legendarną")));
+}
+
+{
+  const { room, events } = setup();
+  const { asker, others } = roles(room);
+  const [a, b] = others;
+  room.fivePlayCard(a, give(a, "mirror"));
+  room.fivePlayCard(b, give(b, "mirror"));
+  room.fivePlayCard(a, give(a, "english"), b.id);
+  check("two mirrors: the card bounces twice and lands on the chosen player", b.fiveCurses.includes("english") && !a.fiveCurses.includes("english"));
+  check("both mirrors burn", a.fiveEffects.mirror === 0 && b.fiveEffects.mirror === 0 && events.filter((text) => text.includes("ustro")).length === 2);
+  room.fivePlayCard(a, give(a, "four"), b.id);
+  check("no mirrors left: next card lands normally", b.fiveCurses.includes("four"));
+}
+
+{
+  const { room, events, effects } = setup();
+  const { asker, others } = roles(room);
+  const [a, b] = others;
+  room.fivePlayCard(a, give(a, "fenix"));
+  check("phoenix shows three questions to its owner only", room.viewFor(a).players.find((p) => p.id === a.id).effects[0].rounds === 3 && room.viewFor(b).players.find((p) => p.id === a.id).secrets === 1);
+  room.fiveChoose(asker, a.id);
+  const lives = a.lives;
+  finish(room, false);
+  check("phoenix turns a fail into +1 life and burns out", a.lives === lives + 1 && a.fiveEffects.fenix === 0 && events.some((text) => text.includes("Feniks")));
+  check("result fx marks the rebirth", effects.some((e) => e.type === "fiveResult" && e.reborn));
+}
+
+{
+  const { room, events } = setup();
+  const { asker, others } = roles(room);
+  const [a, b, c] = others;
+  room.fivePlayCard(a, give(a, "fenix"));
+  for (let i = 0; i < 3; i++) {
+    const current = room.getPlayer(room.five.askerId);
+    if (room.five.stage === "pick") room.fiveChoose(current, [b, c, asker].find((p) => p !== current && p.lives > 0).id);
+    finish(room, true);
+  }
+  check("phoenix expires quietly after three questions", a.fiveEffects.fenix === 0 && !events.some((text) => text.includes("Feniks")));
+}
+
+{
+  const { room, events } = setup();
+  const { asker, others } = roles(room);
+  const [a] = others;
+  room.fivePlayCard(a, give(a, "stink"));
+  room.fiveChoose(asker, a.id);
+  check("skunk stays hidden until START", room.five.answererId === a.id && !events.some((text) => text.includes("Śmierdziel")));
+  room.fiveStart(asker);
+  check("START flips the question onto the asker", room.five.stage === "answer" && room.five.answererId === asker.id && room.five.askerId === a.id && events.some((text) => text.includes("Śmierdziel")));
+  const lives = asker.lives;
+  finish(room, false);
+  check("the asker pays for the fail", asker.lives === lives - 1 && a.lives === 3 && a.fiveEffects.stink === 0);
+}
+
+{
+  const { room } = setup();
+  const { asker, others } = roles(room);
+  const [a] = others;
+  room.fivePlayCard(a, give(a, "stink"));
+  room.fivePlayCard(asker, give(asker, "stink"));
+  room.fiveChoose(asker, a.id);
+  room.fiveStart(asker);
+  check("two skunks cancel out", room.five.answererId === a.id && a.fiveEffects.stink === 0 && asker.fiveEffects.stink === 0);
+}
+
+{
+  const { room, events } = setup(4, (room) => { room.settings.fiveLives = 1; });
+  const { asker, others } = roles(room);
+  const [a, b, c] = others;
+  room.fiveChoose(asker, a.id);
+  finish(room, false);
+  check("a is a ghost", a.lives === 0);
+  check("ghost still cannot play life-only cards", attempt(() => room.fivePlayCard(a, give(a, "ally"), b.id)) !== true);
+  check("ghost must pick who gets a secret card", attempt(() => room.fivePlayCard(a, give(a, "shield"))) !== true);
+  room.fivePlayCard(a, a.cards.find((card) => card.type === "shield").id, b.id);
+  check("ghost gives a shield to a living friend", b.fiveEffects.shield === 1 && events.some((text) => text.includes("tajną kartę na: " + b.nick)));
+  check("ghost can gag the living", attempt(() => room.fivePlayCard(a, give(a, "gag"), c.id)) === true && c.fiveGag === 2);
+  room.fivePlayCard(a, give(a, "vampire"), c.id);
+  check("ghost vampire kills and comes back to life", c.lives === 0 && a.lives === 1 && !room.viewFor(b).players.find((p) => p.id === a.id).out && events.some((text) => text.includes("wraca do gry")));
 }
 
 console.log(failed ? failed + " FAILED" : "ALL PASSED");

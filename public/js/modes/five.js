@@ -30,9 +30,15 @@ function fiveCurseLine(five, type) {
   return type === "letter" ? "🔤 odpowiedzi tylko na literę " + (five.letter || "?") : fiveCurseText[type];
 }
 
+function fiveNeedsTarget(info, me) {
+  return Boolean(info.target || (info.hidden && me.out));
+}
+
 function fiveTargets(s, type, me) {
   const info = fiveCardInfo(type);
+  const self = s.players.find((p) => p.id === me);
   return s.players.filter((p) => {
+    if (info.hidden) return Boolean(self && self.out) && !p.out;
     if (info.target === "dead") return p.out;
     if (info.target === "anyone") return p.id !== me && (!info.needsCards || p.cardCount > 0);
     if (p.out) return false;
@@ -54,10 +60,9 @@ function fiveCardUsable(s, five, me, card) {
   if (info.when === "before" && stage !== "pick" && stage !== "vote") return false;
   if (info.when === "vote" && (stage !== "vote" || five.angelUsed)) return false;
   if (info.when === "asked" && (stage !== "ready" || !mine || five.reversed)) return false;
-  if (me.out && card.type !== "revive" && !info.ghost) return false;
+  if (me.out && info.living) return false;
   if (card.type === "ally" && me.lives < 2) return false;
-  if (info.hidden && me.effects.includes(card.type)) return false;
-  if (info.target && !fiveTargets(s, card.type, me.id).length) return false;
+  if (fiveNeedsTarget(info, me) && !fiveTargets(s, card.type, me.id).length) return false;
   return true;
 }
 
@@ -75,9 +80,12 @@ function renderFiveHand(s, five) {
   const effects = me ? me.effects : [];
   show($("five-hand-box"), cards.length > 0 || effects.length > 0);
   $("five-hand-title").textContent = me && me.out
-    ? "👻 Jesteś duchem: rzucaj karty na żywych (inni widzą tylko, ile ich masz)"
+    ? "👻 Jesteś duchem: rzucaj karty na żywych, tajne dajesz komu chcesz"
     : "🃏 Twoje tajne karty (inni widzą tylko, ile ich masz)";
-  const effectLines = effects.map((type) => fiveCardInfo(type).icon + " " + fiveCardInfo(type).name);
+  const effectLines = effects.map((effect) => {
+    const info = fiveCardInfo(effect.type);
+    return info.icon + " " + info.name + (effect.count > 1 ? " ×" + effect.count : "") + (effect.rounds ? " (jeszcze " + effect.rounds + " pyt.)" : "");
+  });
   if (me && me.gag) effectLines.push("🔇 knebel jeszcze przez " + me.gag + " pyt.");
   $("five-effects").textContent = effectLines.length ? "Czeka u ciebie: " + effectLines.join(" · ") : "";
   show($("five-effects"), effectLines.length > 0);
@@ -97,7 +105,7 @@ function renderFiveHand(s, five) {
       button.disabled = !fiveUi.trading && !usable;
       button.onclick = () => {
         if (fiveUi.trading) return fivePickForTrade(card.id);
-        if (!info.target) {
+        if (!fiveNeedsTarget(info, me)) {
           ask("Zagrać kartę " + info.icon + " " + info.name + "?", () => act("five:card", { cardId: card.id }));
           return;
         }

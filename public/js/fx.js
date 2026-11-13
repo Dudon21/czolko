@@ -187,7 +187,7 @@ const fx = {
           this.stamp(id, "✅ ZALICZONE", "stamp-ok");
         } else {
           sfx.play("voteFail", 0);
-          this.stamp(id, event.shielded ? "🛡️" : event.reversed ? "🔄 ✖" : "−" + event.lost + " ❤️", "stamp-fail");
+          this.stamp(id, event.reborn ? "🔥 +1 ❤️" : event.shielded ? "🛡️" : event.reversed ? "🔄 ✖" : "−" + event.lost + " ❤️", "stamp-fail");
         }
         if (event.out) {
           this.busyUntil = performance.now() + 1800;

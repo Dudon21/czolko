@@ -12,35 +12,40 @@ const FIVE_MIN_SECONDS = 3;
 const FIVE_ABSENT_MS = 20000;
 const FIVE_BONUS_SECONDS = 3;
 const FIVE_GAG_QUESTIONS = 2;
+const FIVE_TIMED_ROUNDS = 3;
 const FIVE_LETTERS = "ABCDEFGHIJKLMNOPRSTUWZ";
 const FIVE_CARDS = {
   revive: { icon: "🧟", name: "Wskrzeszenie", text: "Przywraca do gry osobę, która odpadła (też ciebie), z 1 życiem", target: "dead", when: "any" },
-  angel: { icon: "😇", name: "Anioł stróż", text: "Podczas głosowania: odpowiadający dostaje drugie podejście (nowy czas na odpowiedź)", target: null, when: "vote", ghost: true },
-  torpedo: { icon: "💣", name: "Torpeda", text: "Wskazana osoba musi odpowiadać na następne pytanie. Jak nie zaliczy, traci 2 życia", target: "other", when: "before", ghost: true, hostile: true },
-  ally: { icon: "🤝", name: "Sojusznik", text: "Oddajesz 1 swoje życie, wskazana osoba dostaje 2", target: "other", when: "any" },
-  double: { icon: "🔁", name: "Dwa z rzędu", text: "Wskazana osoba odpowiada na 2 następne pytania z rzędu", target: "alive", when: "before", ghost: true, hostile: true },
-  english: { icon: "🫖", name: "Po angielsku", text: "Wskazana osoba odpowiada na następne pytanie po angielsku", target: "alive", when: "before", ghost: true, hostile: true, curse: true },
-  four: { icon: "4️⃣", name: "Cztery zamiast trzech", text: "Wskazana osoba w następnym pytaniu musi podać 4 odpowiedzi", target: "alive", when: "before", ghost: true, hostile: true, curse: true },
-  letter: { icon: "🔤", name: "Na literę", text: "Wskazana osoba w następnym pytaniu podaje odpowiedzi tylko na wylosowaną literę", target: "alive", when: "before", ghost: true, hostile: true, curse: true },
-  sprint: { icon: "⚡", name: "Sprint", text: "Wskazana osoba ma w następnym pytaniu połowę czasu", target: "alive", when: "before", ghost: true, hostile: true, curse: true },
-  vabanque: { icon: "✌️", name: "Va banque", text: "Następne pytanie wskazanej osoby: zaliczy = +1 życie, nie zaliczy = −2 życia", target: "alive", when: "before", ghost: true, hostile: true, curse: true },
+  angel: { icon: "😇", name: "Anioł stróż", text: "Podczas głosowania: odpowiadający dostaje drugie podejście (nowy czas na odpowiedź)", target: null, when: "vote" },
+  torpedo: { icon: "💣", name: "Torpeda", text: "Wskazana osoba musi odpowiadać na następne pytanie. Jak nie zaliczy, traci 2 życia", target: "other", when: "before", hostile: true },
+  ally: { icon: "🤝", name: "Sojusznik", text: "Oddajesz 1 swoje życie, wskazana osoba dostaje 2", target: "other", when: "any", living: true },
+  double: { icon: "🔁", name: "Dwa z rzędu", text: "Wskazana osoba odpowiada na 2 następne pytania z rzędu", target: "alive", when: "before", hostile: true },
+  english: { icon: "🫖", name: "Po angielsku", text: "Wskazana osoba odpowiada na następne pytanie po angielsku", target: "alive", when: "before", hostile: true, curse: true },
+  four: { icon: "4️⃣", name: "Cztery zamiast trzech", text: "Wskazana osoba w następnym pytaniu musi podać 4 odpowiedzi", target: "alive", when: "before", hostile: true, curse: true },
+  letter: { icon: "🔤", name: "Na literę", text: "Wskazana osoba w następnym pytaniu podaje odpowiedzi tylko na wylosowaną literę", target: "alive", when: "before", hostile: true, curse: true },
+  sprint: { icon: "⚡", name: "Sprint", text: "Wskazana osoba ma w następnym pytaniu połowę czasu", target: "alive", when: "before", hostile: true, curse: true },
+  vabanque: { icon: "✌️", name: "Va banque", text: "Następne pytanie wskazanej osoby: zaliczy = +1 życie, nie zaliczy = −2 życia", target: "alive", when: "before", hostile: true, curse: true },
   bonus: { icon: "🐢", name: "Dogrywka", text: "Tajna: w swoim następnym pytaniu masz +3 s. Inni zobaczą ją dopiero, gdy zadziała", target: null, when: "before", hidden: true },
   shield: { icon: "🛡️", name: "Tarcza", text: "Tajna: twoja następna porażka nie zabiera życia. Inni zobaczą ją dopiero, gdy zadziała", target: null, when: "any", hidden: true },
   mirror: { icon: "🪞", name: "Lustro", text: "Tajna: następna wredna karta rzucona na ciebie wraca do rzucającego", target: null, when: "any", hidden: true },
   legend: { icon: "🌟", name: "Legendarna tajna karta", text: "Tajna: wygląda groźnie, ale nic nie robi. Odsłania się, gdy ktoś rzuci na ciebie wredną kartę albo gdy nie zaliczysz", target: null, when: "any", hidden: true, bluff: true },
-  potato: { icon: "🥔", name: "Gorący kartofel", text: "Gdy cię pytają (też w trakcie odpowiadania): przerzucasz pytanie na inną osobę, czas leci od nowa", target: "other", when: "mine" },
+  fenix: { icon: "🔥", name: "Feniks", text: "Tajna: działa przez 3 pytania. Jeśli w tym czasie nie zaliczysz, zamiast stracić życie dostajesz +1", target: null, when: "any", hidden: true, timed: true },
+  stink: { icon: "🦨", name: "Śmierdziel", text: "Tajna: działa przez 3 pytania. Gdy ktoś cię zapyta, po kliknięciu START odpowiada pytający zamiast ciebie", target: null, when: "any", hidden: true, timed: true },
+  potato: { icon: "🥔", name: "Gorący kartofel", text: "Gdy cię pytają (też w trakcie odpowiadania): przerzucasz pytanie na inną osobę, czas leci od nowa", target: "other", when: "mine", living: true },
   thief: { icon: "🥷", name: "Złodziej", text: "Kradniesz losową kartę wskazanej osobie", target: "anyone", when: "any", hostile: true, needsCards: true },
   peek: { icon: "👁️", name: "Podgląd", text: "Widzisz karty wskazanej osoby", target: "anyone", when: "any", needsCards: true },
-  gag: { icon: "🔇", name: "Knebel", text: "Wskazana osoba nie może zagrać żadnej karty przez 2 pytania", target: "anyone", when: "any", ghost: true, hostile: true },
+  gag: { icon: "🔇", name: "Knebel", text: "Wskazana osoba nie może zagrać żadnej karty przez 2 pytania", target: "anyone", when: "any", hostile: true },
   draw: { icon: "🃏", name: "Dobierz dwie", text: "Dostajesz 2 losowe karty", target: null, when: "any" },
   vampire: { icon: "🧛", name: "Wampir", text: "Zabierasz wskazanej osobie 1 życie i dodajesz sobie", target: "other", when: "any", hostile: true },
   roulette: { icon: "🎲", name: "Ruletka", text: "Losowa żywa osoba (możesz to być ty) traci 1 życie", target: null, when: "any" },
-  reverse: { icon: "🔄", name: "Odwrotka", text: "Gdy ktoś cię pyta: pytający sam musi odpowiedzieć. Jak nie zaliczy, dostajesz +1 życie", target: null, when: "asked" }
+  reverse: { icon: "🔄", name: "Odwrotka", text: "Gdy ktoś cię pyta: pytający sam musi odpowiedzieć. Jak nie zaliczy, dostajesz +1 życie", target: null, when: "asked", living: true }
 };
 const FIVE_CARD_TYPES = Object.keys(FIVE_CARDS);
 const CURSE_TYPES = FIVE_CARD_TYPES.filter((type) => FIVE_CARDS[type].curse);
-const GHOST_TYPES = FIVE_CARD_TYPES.filter((type) => FIVE_CARDS[type].ghost);
+const GHOST_TYPES = FIVE_CARD_TYPES.filter((type) => !FIVE_CARDS[type].living);
+const HAUNT_TYPES = GHOST_TYPES.filter((type) => type !== "revive");
 const HIDDEN_TYPES = FIVE_CARD_TYPES.filter((type) => FIVE_CARDS[type].hidden);
+const TIMED_TYPES = FIVE_CARD_TYPES.filter((type) => FIVE_CARDS[type].timed);
 
 const taskKey = (text) => normalizeGuess(text) || textKey(text);
 
@@ -112,7 +117,7 @@ const methods = {
 
   fiveHaunt() {
     const ghosts = this.players.filter((p) => p.lives <= 0);
-    const gifted = ghosts.filter((ghost) => this.giveCard(ghost, GHOST_TYPES));
+    const gifted = ghosts.filter((ghost) => this.giveCard(ghost, HAUNT_TYPES));
     if (!gifted.length) return;
     this.fx("fiveGhost", { ids: gifted.map((p) => p.id) });
     this.announce(`👻 Duchy dostają po karcie do rzucenia na żywych (${gifted.map((p) => p.nick).join(", ")})`);
@@ -131,7 +136,7 @@ const methods = {
   },
 
   fiveResetEffects(player) {
-    player.fiveEffects = Object.fromEntries(HIDDEN_TYPES.map((type) => [type, false]));
+    player.fiveEffects = Object.fromEntries(HIDDEN_TYPES.map((type) => [type, 0]));
     player.fiveGag = 0;
   },
 
@@ -141,8 +146,8 @@ const methods = {
   },
 
   fiveBluff(player, delay) {
-    if (!player || !player.fiveEffects.legend) return;
-    player.fiveEffects.legend = false;
+    if (!player || !(player.fiveEffects.legend > 0)) return;
+    player.fiveEffects.legend -= 1;
     this.fiveReveal(player, "legend", `🌟 ${player.nick} odsłania Legendarną tajną kartę… i nic się nie dzieje 😎`, delay);
   },
 
@@ -152,6 +157,34 @@ const methods = {
     this.fiveSyncScore(player);
     if (lost && player.lives <= 0) player.fiveOut = ++this.fiveOutSeq;
     return lost;
+  },
+
+  fiveEffectCount(player, type) {
+    const value = (player.fiveEffects && player.fiveEffects[type]) || 0;
+    return FIVE_CARDS[type].timed ? Number(value > 0) : value;
+  },
+
+  fiveStink() {
+    const five = this.five;
+    for (let bounce = 0; bounce < 2; bounce++) {
+      const answerer = this.getPlayer(five.answererId);
+      const asker = this.getPlayer(five.askerId);
+      if (!answerer || !asker || asker === answerer || asker.lives <= 0 || !(answerer.fiveEffects.stink > 0)) return;
+      answerer.fiveEffects.stink = 0;
+      answerer.fiveCurses.push(...five.curses.filter((curse) => curse !== "torpedo"));
+      five.curses = [];
+      this.fiveApplyCurses();
+      five.reversed = false;
+      five.reverseOwnerId = null;
+      five.answererId = asker.id;
+      five.askerId = answerer.id;
+      this.fiveReveal(answerer, "stink", `🦨 Śmierdziel! ${answerer.nick} się wywija, odpowiada ${asker.nick}`);
+    }
+  },
+
+  fiveLaunch() {
+    this.fiveStink();
+    this.fiveBeginAnswer();
   },
 
   fiveApplyCurses() {
@@ -200,7 +233,7 @@ const methods = {
     const reader = readers.find((p) => p.lives > 0) || readers[0];
     if (!reader) {
       this.announce(`⏳ ${asker.nick} zniknął(a), zadanie startuje samo`);
-      return this.fiveBeginAnswer();
+      return this.fiveLaunch();
     }
     five.askerId = reader.id;
     this.activeId = reader.id;
@@ -416,7 +449,7 @@ const methods = {
   fiveStart(player) {
     const five = this.requireFive("ready");
     if (five.askerId !== player.id && !this.canManage(player)) fail("Start klika pytający");
-    this.fiveBeginAnswer();
+    this.fiveLaunch();
     this.changed();
   },
 
@@ -449,8 +482,8 @@ const methods = {
     const answerer = this.getPlayer(five.answererId);
     let seconds = this.fiveAnswerSeconds();
     if (five.curses.includes("sprint")) seconds = Math.max(2, Math.ceil(seconds / 2));
-    if (answerer && answerer.fiveEffects.bonus) {
-      answerer.fiveEffects.bonus = false;
+    if (answerer && answerer.fiveEffects.bonus > 0) {
+      answerer.fiveEffects.bonus -= 1;
       seconds += FIVE_BONUS_SECONDS;
       this.fiveReveal(answerer, "bonus", `🐢 Dogrywka! ${answerer.nick} ma +${FIVE_BONUS_SECONDS} s`);
     }
@@ -503,6 +536,7 @@ const methods = {
     let lost = 0;
     let card = null;
     let shielded = false;
+    let reborn = false;
     let jackpot = false;
     if (answerer) {
       if (passed) answerer.fiveStats.passed += 1;
@@ -526,8 +560,14 @@ const methods = {
         jackpot = true;
       }
       nextAskerId = this.fiveForced[0] === answerer.id ? five.askerId : answerer.id;
-    } else if (answerer && answerer.fiveEffects.shield) {
-      answerer.fiveEffects.shield = false;
+    } else if (answerer && answerer.fiveEffects.fenix > 0) {
+      answerer.fiveEffects.fenix = 0;
+      if (answerer.lives <= 0) answerer.fiveOut = 0;
+      answerer.lives += 1;
+      this.fiveSyncScore(answerer);
+      reborn = true;
+    } else if (answerer && answerer.fiveEffects.shield > 0) {
+      answerer.fiveEffects.shield -= 1;
       shielded = true;
     } else if (answerer) {
       lost = this.fiveLoseLife(answerer, five.stake);
@@ -557,13 +597,15 @@ const methods = {
       reversed: five.reversed,
       curses: five.curses
     });
-    this.fx("fiveResult", { playerId: five.answererId, passed, lost, out, card: Boolean(card), reversed: five.reversed, shielded });
+    this.fx("fiveResult", { playerId: five.answererId, passed, lost, out, card: Boolean(card), reversed: five.reversed, shielded, reborn });
     const name = answerer ? answerer.nick : "?";
     if (five.reversed) {
       const owner = this.getPlayer(five.reverseOwnerId);
       this.announce(passed ? `🔄 ${name} obronił(a) się przed odwrotką` : `🔄 ${name} nie zaliczył(a)! ${owner ? owner.nick : "?"} dostaje +1 ❤️`);
     } else if (passed) {
       this.announce(`✅ ${name} zalicza (${yes}:${no})${jackpot ? ", Va banque daje +1 ❤️" : ""}${card ? " i dostaje tajną kartę 🃏" : ""}`);
+    } else if (reborn) {
+      this.announce(`🔥 Feniks! ${name} nie zalicza (${yes}:${no}), ale zamiast stracić życie dostaje +1 ❤️`);
     } else if (shielded) {
       this.announce(`🛡️ Tarcza! ${name} nie zalicza (${yes}:${no}), ale nie traci życia`);
     } else {
@@ -574,7 +616,10 @@ const methods = {
     if (secondsNow < secondsBefore) this.announce(`⏩ Tempo rośnie! Teraz ${secondsNow} s na odpowiedź`);
     const ghostEvery = this.settings.fiveGhostEvery;
     if (ghostEvery && this.fiveHistory.length % ghostEvery === 0) this.fiveHaunt();
-    for (const p of this.players) if (p.fiveGag > 0) p.fiveGag -= 1;
+    for (const p of this.players) {
+      if (p.fiveGag > 0) p.fiveGag -= 1;
+      for (const type of TIMED_TYPES) if (p.fiveEffects[type] > 0) p.fiveEffects[type] -= 1;
+    }
     if (this.fiveAlive().length === 2 && answerer && answerer.lives > 0) nextAskerId = five.answererId;
     this.startFivePick(nextAskerId);
   },
@@ -594,11 +639,12 @@ const methods = {
   },
 
   fiveCardTarget(player, info, targetId) {
-    if (!info.target) return null;
+    const kind = info.hidden ? (player.lives <= 0 ? "other" : null) : info.target;
+    if (!kind) return null;
     const target = this.requireTarget(targetId);
-    if (info.target === "dead" && target.lives > 0) fail("Ta osoba jeszcze gra");
-    if ((info.target === "other" || info.target === "alive") && target.lives <= 0) fail("Ta osoba już odpadła");
-    if ((info.target === "other" || info.target === "anyone") && target === player) fail("Wybierz kogoś innego");
+    if (kind === "dead" && target.lives > 0) fail("Ta osoba jeszcze gra");
+    if ((kind === "other" || kind === "alive") && target.lives <= 0) fail("Ta osoba już odpadła");
+    if ((kind === "other" || kind === "anyone") && target === player) fail("Wybierz kogoś innego");
     if (info.needsCards && !target.cards.length) fail(`${target.nick} nie ma kart`);
     return target;
   },
@@ -615,16 +661,17 @@ const methods = {
     const info = FIVE_CARDS[type];
     this.fiveCardWindow(player, info);
     if (player.fiveGag > 0) fail(`Masz knebel jeszcze przez ${player.fiveGag} pyt.`);
-    if (player.lives <= 0 && type !== "revive" && !info.ghost) fail("Jako duch możesz zagrać tylko Wskrzeszenie i karty na żywych");
+    if (player.lives <= 0 && info.living) fail("Tej karty nie zagrasz jako duch");
     const target = this.fiveCardTarget(player, info, targetId);
-    const reflected = Boolean(info.hostile && target && target !== player && target.fiveEffects.mirror);
+    const mirrored = Boolean(info.hostile && target && target !== player && target.fiveEffects.mirror > 0);
+    const bounced = mirrored && player.fiveEffects.mirror > 0;
+    const reflected = mirrored && !bounced;
     const actor = reflected ? target : player;
     const victim = reflected ? player : target;
     if (type === "angel" && five.angelUsed) fail("Anioł stróż już pomógł w tym pytaniu");
     if (type === "torpedo" && !reflected && this.fiveForced.includes(victim.id)) fail("Ta osoba już ma wymuszone pytanie");
     if (type === "ally" && player.lives < 2) fail("Potrzebujesz co najmniej 2 żyć, żeby oddać jedno");
     if (type === "reverse" && five.reversed) fail("Odwrotka już zagrana");
-    if (info.hidden && player.fiveEffects[type]) fail(`${info.name} już u ciebie czeka`);
     if (type === "draw" && !this.fiveCardPool().length) fail("Wszystkie karty są wyłączone");
     player.cards.splice(index, 1);
     const stageBefore = five.stage;
@@ -674,8 +721,11 @@ const methods = {
       this.fiveApplyCurses();
       text = `🥔 ${player.nick} przerzuca pytanie! Odpowiada ${target.nick}`;
     } else if (info.hidden) {
-      player.fiveEffects[type] = true;
-      text = `🂠 ${player.nick} zagrywa tajną kartę`;
+      const owner = target || player;
+      const fresh = five.stage === "vote" && five.answererId !== owner.id;
+      if (info.timed) owner.fiveEffects[type] = FIVE_TIMED_ROUNDS + Number(fresh);
+      else owner.fiveEffects[type] += 1;
+      text = target ? `🂠 ${player.nick} zagrywa tajną kartę na: ${target.nick}` : `🂠 ${player.nick} zagrywa tajną kartę`;
     } else if (type === "thief") {
       const stolen = victim.cards.length ? victim.cards.splice(crypto.randomInt(victim.cards.length), 1)[0] : null;
       if (stolen && actor.cards.length < FIVE_MAX_CARDS) actor.cards.push(stolen);
@@ -693,19 +743,25 @@ const methods = {
       text = `🃏 ${player.nick} dobiera karty: ${drawn}`;
     } else if (type === "vampire") {
       const taken = this.fiveLoseLife(victim, 1);
-      if (actor.lives > 0) actor.lives += taken;
+      const risen = taken > 0 && actor.lives <= 0;
+      actor.lives += taken;
+      if (risen) actor.fiveOut = 0;
       this.fiveSyncScore(actor);
-      text = `🧛 ${actor.nick} wysysa życie: ${victim.nick} −${taken} ❤️${victim.lives <= 0 ? ". Odpada! 💀" : ""}`;
+      text = `🧛 ${actor.nick} wysysa życie: ${victim.nick} −${taken} ❤️${victim.lives <= 0 ? ". Odpada! 💀" : ""}${risen ? ` ${actor.nick} wraca do gry! 🧟` : ""}`;
     } else if (type === "roulette") {
       const alive = this.fiveAlive();
       const unlucky = alive[crypto.randomInt(alive.length)];
       this.fiveLoseLife(unlucky, 1);
       text = `🎲 Ruletka od ${player.nick} trafia w: ${unlucky.nick} −1 ❤️${unlucky.lives <= 0 ? ". Odpada! 💀" : ""}`;
     }
-    this.fx("fiveCard", { playerId: player.id, targetId: info.hidden || !target ? null : victim.id, card: info.hidden ? "hidden" : type });
-    if (reflected) {
-      target.fiveEffects.mirror = false;
+    this.fx("fiveCard", { playerId: player.id, targetId: target ? victim.id : null, card: info.hidden ? "hidden" : type });
+    if (mirrored) {
+      target.fiveEffects.mirror -= 1;
       this.fiveReveal(target, "mirror", `🪞 Lustro! ${target.nick} odbija kartę „${info.name}” w stronę ${player.nick}`);
+    }
+    if (bounced) {
+      player.fiveEffects.mirror -= 1;
+      this.fiveReveal(player, "mirror", `🪞🪞 Drugie lustro! ${player.nick} odbija ją z powrotem, karta trafia w ${target.nick}`, 1900);
     }
     this.announce(text);
     if (info.hostile && target && target !== player) this.fiveBluff(target, 1700);
@@ -732,7 +788,7 @@ const methods = {
     if (ids.length !== 2) fail("Wybierz dokładnie 2 karty do wymiany");
     const traded = ids.map((id) => (player.cards || []).find((card) => card.id === id));
     if (traded.some((card) => !card)) fail("Nie masz takiej karty");
-    const enabled = this.fiveCardPool(player.lives > 0 ? FIVE_CARD_TYPES : [...GHOST_TYPES, "revive"]);
+    const enabled = this.fiveCardPool(player.lives > 0 ? FIVE_CARD_TYPES : GHOST_TYPES);
     const fresh = enabled.filter((type) => !traded.some((card) => card.type === type));
     const pool = fresh.length ? fresh : enabled;
     if (!pool.length) fail("Wszystkie karty są wyłączone");
@@ -777,7 +833,7 @@ const methods = {
       if (!options.length) return this.finish("lastAlive");
       return this.fivePrepare(options[crypto.randomInt(options.length)]);
     }
-    if (five.stage === "ready") return this.fiveBeginAnswer();
+    if (five.stage === "ready") return this.fiveLaunch();
     if (five.stage === "answer") {
       clearTimeout(five.timer);
       return this.startFiveVote();
@@ -843,8 +899,14 @@ const methods = {
       cards: viewer && viewer.id === p.id ? cards.map((card) => ({ id: card.id, type: card.type })) : [],
       curses: p.fiveCurses || [],
       gag: p.fiveGag || 0,
-      secrets: HIDDEN_TYPES.filter((type) => p.fiveEffects && p.fiveEffects[type]).length,
-      effects: viewer && viewer.id === p.id ? HIDDEN_TYPES.filter((type) => p.fiveEffects && p.fiveEffects[type]) : []
+      secrets: HIDDEN_TYPES.reduce((sum, type) => sum + this.fiveEffectCount(p, type), 0),
+      effects: viewer && viewer.id === p.id
+        ? HIDDEN_TYPES.filter((type) => this.fiveEffectCount(p, type) > 0).map((type) => ({
+            type,
+            count: this.fiveEffectCount(p, type),
+            rounds: FIVE_CARDS[type].timed ? Math.min(FIVE_TIMED_ROUNDS, p.fiveEffects[type]) : null
+          }))
+        : []
     };
   },
 
