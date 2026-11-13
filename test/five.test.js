@@ -84,7 +84,9 @@ const answer = (room, pass) => {
   const [a, b, c] = room.players.filter((p) => p !== asker);
   a.cards.push({ id: 900, type: "torpedo" });
   room.fivePlayCard(a, 900, b.id);
-  check("torpedo: forced to b with stake 2", room.five.stage === "ready" && room.five.answererId === b.id && room.five.stake === 2);
+  check("torpedo waits for the next question of b", room.five.stage === "pick" && b.fiveCurses.includes("torpedo"));
+  room.fiveChoose(asker, b.id);
+  check("torpedo: stake 2 on that question", room.five.stage === "ready" && room.five.answererId === b.id && room.five.stake === 2);
   answer(room, false);
   check("torpedo fail -2", b.lives === 1);
   const asker2 = get(room, room.five.askerId);

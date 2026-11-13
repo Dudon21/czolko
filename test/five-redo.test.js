@@ -14,7 +14,9 @@ const caster = room.players.find((p) => p !== asker && p !== target && p !== oth
 caster.cards = [{ id: 900, type: "english" }, { id: 901, type: "torpedo" }];
 room.fivePlayCard(caster, 900, target.id);
 room.fivePlayCard(caster, 901, target.id);
-check("torpedo forces target", room.five.answererId === target.id && room.five.stage === "ready");
+check("torpedo no longer forces the question", room.five.stage === "pick" && target.fiveCurses.includes("torpedo"));
+room.fiveChoose(asker, target.id);
+check("target asked with the torpedo on", room.five.answererId === target.id && room.five.stage === "ready");
 check("curses on question", room.five.curses.includes("english") && room.five.stake === 2);
 check("redo blocked before start", attempt(() => room.fiveRedo(asker)) !== true);
 const t1 = room.five.task.text;

@@ -17,7 +17,7 @@ const FIVE_LETTERS = "ABCDEFGHIJKLMNOPRSTUWZ";
 const FIVE_CARDS = {
   revive: { icon: "🧟", name: "Wskrzeszenie", text: "Przywraca do gry osobę, która odpadła (też ciebie), z 1 życiem", target: "dead", when: "any" },
   angel: { icon: "😇", name: "Anioł stróż", text: "Podczas głosowania: odpowiadający dostaje drugie podejście (nowy czas na odpowiedź)", target: null, when: "vote" },
-  torpedo: { icon: "💣", name: "Torpeda", text: "Wskazana osoba musi odpowiadać na następne pytanie. Jak nie zaliczy, traci 2 życia", target: "other", when: "before", hostile: true },
+  torpedo: { icon: "💣", name: "Torpeda", text: "Następne pytanie wskazanej osoby: jak nie zaliczy, traci 2 życia", target: "other", when: "before", hostile: true, curse: true },
   ally: { icon: "🤝", name: "Sojusznik", text: "Oddajesz 1 swoje życie, wskazana osoba dostaje 2", target: "other", when: "any", living: true },
   double: { icon: "🔁", name: "Dwa z rzędu", text: "Wskazana osoba odpowiada na 2 następne pytania z rzędu", target: "alive", when: "before", hostile: true },
   english: { icon: "🫖", name: "Po angielsku", text: "Wskazana osoba odpowiada na następne pytanie po angielsku", target: "alive", when: "before", hostile: true, curse: true },
@@ -27,7 +27,7 @@ const FIVE_CARDS = {
   vabanque: { icon: "✌️", name: "Va banque", text: "Następne pytanie wskazanej osoby: zaliczy = +1 życie, nie zaliczy = −2 życia", target: "alive", when: "before", hostile: true, curse: true },
   bonus: { icon: "🐢", name: "Dogrywka", text: "Tajna: w swoim następnym pytaniu masz +3 s. Inni zobaczą ją dopiero, gdy zadziała", target: null, when: "before", hidden: true },
   shield: { icon: "🛡️", name: "Tarcza", text: "Tajna: twoja następna porażka nie zabiera życia. Inni zobaczą ją dopiero, gdy zadziała", target: null, when: "any", hidden: true },
-  mirror: { icon: "🪞", name: "Lustro", text: "Tajna: następna wredna karta rzucona na ciebie wraca do rzucającego", target: null, when: "any", hidden: true },
+  mirror: { icon: "🪞", name: "Lustro", text: "Tajna: następna karta rzucona na ciebie, dobra czy zła, trafia w rzucającego", target: null, when: "any", hidden: true },
   legend: { icon: "🌟", name: "Legendarna tajna karta", text: "Tajna: wygląda groźnie, ale nic nie robi. Odsłania się, gdy ktoś rzuci na ciebie wredną kartę albo gdy nie zaliczysz", target: null, when: "any", hidden: true, bluff: true },
   fenix: { icon: "🔥", name: "Feniks", text: "Tajna: działa przez 3 pytania. Jeśli w tym czasie nie zaliczysz, zamiast stracić życie dostajesz +1", target: null, when: "any", hidden: true, timed: true },
   stink: { icon: "🦨", name: "Śmierdziel", text: "Tajna: działa przez 3 pytania. Gdy ktoś cię zapyta, po kliknięciu START odpowiada pytający zamiast ciebie", target: null, when: "any", hidden: true, timed: true },
@@ -164,6 +164,16 @@ const methods = {
     return FIVE_CARDS[type].timed ? Number(value > 0) : value;
   },
 
+  fiveMirror(thrower, aimed, name, reveals) {
+    if (!aimed || aimed === thrower || !(aimed.fiveEffects.mirror > 0)) return false;
+    aimed.fiveEffects.mirror -= 1;
+    reveals.push([aimed, "mirror", `🪞 Lustro! ${aimed.nick} odbija kartę „${name}” w stronę ${thrower.nick}`, 0]);
+    if (!(thrower.fiveEffects.mirror > 0)) return true;
+    thrower.fiveEffects.mirror -= 1;
+    reveals.push([thrower, "mirror", `🪞🪞 Drugie lustro! ${thrower.nick} odbija ją z powrotem, karta trafia w ${aimed.nick}`, 1900]);
+    return false;
+  },
+
   fiveStink() {
     const five = this.five;
     for (let bounce = 0; bounce < 2; bounce++) {
@@ -171,14 +181,18 @@ const methods = {
       const asker = this.getPlayer(five.askerId);
       if (!answerer || !asker || asker === answerer || asker.lives <= 0 || !(answerer.fiveEffects.stink > 0)) return;
       answerer.fiveEffects.stink = 0;
-      answerer.fiveCurses.push(...five.curses.filter((curse) => curse !== "torpedo"));
+      const reveals = [];
+      const blocked = this.fiveMirror(answerer, asker, "Śmierdziel", reveals);
+      this.fiveReveal(answerer, "stink", blocked ? `🦨 Śmierdziel! ${answerer.nick} próbuje się wywinąć…` : `🦨 Śmierdziel! ${answerer.nick} się wywija, odpowiada ${asker.nick}`);
+      for (const [owner, type, text, delay] of reveals) this.fiveReveal(owner, type, text, delay + 1900);
+      if (blocked) return;
+      answerer.fiveCurses.push(...five.curses);
       five.curses = [];
       this.fiveApplyCurses();
       five.reversed = false;
       five.reverseOwnerId = null;
       five.answererId = asker.id;
       five.askerId = answerer.id;
-      this.fiveReveal(answerer, "stink", `🦨 Śmierdziel! ${answerer.nick} się wywija, odpowiada ${asker.nick}`);
     }
   },
 
@@ -663,65 +677,69 @@ const methods = {
     if (player.fiveGag > 0) fail(`Masz knebel jeszcze przez ${player.fiveGag} pyt.`);
     if (player.lives <= 0 && info.living) fail("Tej karty nie zagrasz jako duch");
     const target = this.fiveCardTarget(player, info, targetId);
-    const mirrored = Boolean(info.hostile && target && target !== player && target.fiveEffects.mirror > 0);
-    const bounced = mirrored && player.fiveEffects.mirror > 0;
-    const reflected = mirrored && !bounced;
-    const actor = reflected ? target : player;
-    const victim = reflected ? player : target;
     if (type === "angel" && five.angelUsed) fail("Anioł stróż już pomógł w tym pytaniu");
-    if (type === "torpedo" && !reflected && this.fiveForced.includes(victim.id)) fail("Ta osoba już ma wymuszone pytanie");
     if (type === "ally" && player.lives < 2) fail("Potrzebujesz co najmniej 2 żyć, żeby oddać jedno");
     if (type === "reverse" && five.reversed) fail("Odwrotka już zagrana");
     if (type === "draw" && !this.fiveCardPool().length) fail("Wszystkie karty są wyłączone");
     player.cards.splice(index, 1);
     const stageBefore = five.stage;
+    const reveals = [];
+    const aimed = type === "reverse" ? this.getPlayer(five.askerId) : target;
+    const reflected = this.fiveMirror(player, aimed, info.name, reveals);
+    const actor = reflected ? aimed : player;
+    const victim = reflected ? player : aimed;
+    let moved = false;
     let text;
     if (type === "revive") {
-      target.lives = 1;
-      target.fiveOut = 0;
-      this.fiveSyncScore(target);
-      text = `🧟 ${player.nick} wskrzesza: ${target.nick} wraca z 1 ❤️`;
+      if (victim.lives <= 0) {
+        victim.lives = 1;
+        victim.fiveOut = 0;
+        this.fiveSyncScore(victim);
+        text = `🧟 ${player.nick} wskrzesza: ${victim.nick} wraca z 1 ❤️`;
+      } else {
+        text = `🧟 ${player.nick} wskrzesza… ale ${victim.nick} żyje, więc nic się nie dzieje`;
+      }
     } else if (type === "angel") {
       five.angelUsed = true;
       const answerer = this.getPlayer(five.answererId);
       text = `😇 ${player.nick} zagrywa Anioła stróża! ${answerer ? answerer.nick : "?"} ma drugie podejście`;
-    } else if (type === "torpedo") {
-      this.fiveForced.push(victim.id);
-      victim.fiveCurses.push("torpedo");
-      text = `💣 ${actor.nick} wystrzeliwuje torpedę w: ${victim.nick}`;
     } else if (type === "ally") {
       player.lives -= 1;
-      target.lives += 2;
+      victim.lives += 2;
       this.fiveSyncScore(player);
-      this.fiveSyncScore(target);
-      text = `🤝 ${player.nick} oddaje życie, ${target.nick} dostaje +2 ❤️`;
+      this.fiveSyncScore(victim);
+      text = `🤝 ${player.nick} oddaje życie, ${victim.nick} dostaje +2 ❤️`;
     } else if (type === "double") {
       this.fiveForced.push(victim.id, victim.id);
       text = `🔁 ${actor.nick}: ${victim.nick} odpowiada na 2 pytania z rzędu`;
     } else if (CURSE_TYPES.includes(type)) {
       victim.fiveCurses.push(type);
       text = `${info.icon} ${actor.nick} zagrywa „${info.name}” na: ${victim.nick}`;
+    } else if (type === "reverse" && reflected) {
+      text = `🔄 ${player.nick} zagrywa Odwrotkę, ale wraca do niego. Odpowiada ${player.nick}`;
     } else if (type === "reverse") {
-      player.fiveCurses.push(...five.curses.filter((curse) => curse !== "torpedo"));
+      player.fiveCurses.push(...five.curses);
       five.curses = [];
       this.fiveApplyCurses();
       five.reversed = true;
       five.reverseOwnerId = player.id;
       five.answererId = five.askerId;
       five.askerId = player.id;
-      const loser = this.getPlayer(five.answererId);
-      text = `🔄 ${player.nick} zagrywa Odwrotkę! Odpowiada ${loser ? loser.nick : "?"}`;
+      text = `🔄 ${player.nick} zagrywa Odwrotkę! Odpowiada ${aimed ? aimed.nick : "?"}`;
+    } else if (type === "potato" && reflected) {
+      text = `🥔 ${player.nick} próbuje przerzucić pytanie, ale wraca do niego`;
     } else if (type === "potato") {
-      player.fiveCurses.push(...five.curses.filter((curse) => curse !== "torpedo"));
+      player.fiveCurses.push(...five.curses);
       if (target.id === five.askerId) five.askerId = player.id;
       if (this.fiveForced[0] === target.id) this.fiveForced.shift();
       five.answererId = target.id;
       five.curses = target.fiveCurses;
       target.fiveCurses = [];
       this.fiveApplyCurses();
+      moved = true;
       text = `🥔 ${player.nick} przerzuca pytanie! Odpowiada ${target.nick}`;
     } else if (info.hidden) {
-      const owner = target || player;
+      const owner = victim || player;
       const fresh = five.stage === "vote" && five.answererId !== owner.id;
       if (info.timed) owner.fiveEffects[type] = FIVE_TIMED_ROUNDS + Number(fresh);
       else owner.fiveEffects[type] += 1;
@@ -732,8 +750,8 @@ const methods = {
       this.fx("fiveSteal", { playerId: actor.id, targetId: victim.id, got: Boolean(stolen) });
       text = stolen ? `🥷 ${actor.nick} kradnie kartę graczowi ${victim.nick}` : `🥷 ${actor.nick} chciał(a) okraść ${victim.nick}, ale nie było czego`;
     } else if (type === "peek") {
-      this.emit("fivePeek", player, { nick: target.nick, cards: target.cards.map((held) => held.type) });
-      text = `👁️ ${player.nick} podgląda karty gracza ${target.nick}`;
+      this.emit("fivePeek", actor, { nick: victim.nick, cards: victim.cards.map((held) => held.type) });
+      text = `👁️ ${actor.nick} podgląda karty gracza ${victim.nick}`;
     } else if (type === "gag") {
       victim.fiveGag = FIVE_GAG_QUESTIONS;
       text = `🔇 ${actor.nick} knebluje: ${victim.nick} nie zagra karty przez ${FIVE_GAG_QUESTIONS} pytania`;
@@ -750,19 +768,13 @@ const methods = {
       text = `🧛 ${actor.nick} wysysa życie: ${victim.nick} −${taken} ❤️${victim.lives <= 0 ? ". Odpada! 💀" : ""}${risen ? ` ${actor.nick} wraca do gry! 🧟` : ""}`;
     } else if (type === "roulette") {
       const alive = this.fiveAlive();
-      const unlucky = alive[crypto.randomInt(alive.length)];
-      this.fiveLoseLife(unlucky, 1);
-      text = `🎲 Ruletka od ${player.nick} trafia w: ${unlucky.nick} −1 ❤️${unlucky.lives <= 0 ? ". Odpada! 💀" : ""}`;
+      let unlucky = alive[crypto.randomInt(alive.length)];
+      if (this.fiveMirror(player, unlucky, info.name, reveals)) unlucky = player;
+      const lost = this.fiveLoseLife(unlucky, 1);
+      text = `🎲 Ruletka od ${player.nick} trafia w: ${unlucky.nick} −${lost} ❤️${lost && unlucky.lives <= 0 ? ". Odpada! 💀" : ""}`;
     }
     this.fx("fiveCard", { playerId: player.id, targetId: target ? victim.id : null, card: info.hidden ? "hidden" : type });
-    if (mirrored) {
-      target.fiveEffects.mirror -= 1;
-      this.fiveReveal(target, "mirror", `🪞 Lustro! ${target.nick} odbija kartę „${info.name}” w stronę ${player.nick}`);
-    }
-    if (bounced) {
-      player.fiveEffects.mirror -= 1;
-      this.fiveReveal(player, "mirror", `🪞🪞 Drugie lustro! ${player.nick} odbija ją z powrotem, karta trafia w ${target.nick}`, 1900);
-    }
+    for (const [owner, kind, line, delay] of reveals) this.fiveReveal(owner, kind, line, delay);
     this.announce(text);
     if (info.hostile && target && target !== player) this.fiveBluff(target, 1700);
     if (type === "vampire" || type === "roulette") {
@@ -770,8 +782,8 @@ const methods = {
       this.changed();
       return;
     }
-    if (type === "angel" || (type === "potato" && stageBefore === "answer")) this.fiveBeginAnswer();
-    if (type === "potato" && stageBefore === "ready") this.fiveWatchAsker();
+    if (type === "angel" || (moved && stageBefore === "answer")) this.fiveBeginAnswer();
+    if (moved && stageBefore === "ready") this.fiveWatchAsker();
     if (five.stage === "pick" && this.fiveForced[0]) {
       const forced = this.getPlayer(this.fiveForced[0]);
       if (forced && forced.id !== five.askerId) this.fivePrepare(forced);

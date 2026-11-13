@@ -300,5 +300,72 @@ const finish = (room, pass) => {
   check("ghost vampire kills and comes back to life", c.lives === 0 && a.lives === 1 && !room.viewFor(b).players.find((p) => p.id === a.id).out && events.some((text) => text.includes("wraca do gry")));
 }
 
+{
+  const { room, peeks, events } = setup();
+  const { asker, others } = roles(room);
+  const [a, b] = others;
+  room.fivePlayCard(a, give(a, "mirror"));
+  const bLives = b.lives;
+  room.fivePlayCard(b, give(b, "ally"), a.id);
+  check("mirror bounces a gift too: the giver ends up +1", b.lives === bLives + 1 && a.lives === 3 && a.fiveEffects.mirror === 0);
+  room.fivePlayCard(a, give(a, "mirror"));
+  give(b, "angel");
+  give(a, "revive");
+  room.fivePlayCard(b, give(b, "peek"), a.id);
+  check("mirrored peek shows the peeker's cards to the mirror owner", peeks.length === 1 && peeks[0].player === a && peeks[0].payload.nick === b.nick && peeks[0].payload.cards.includes("angel"));
+  check("mirror reveals are announced", events.filter((text) => text.includes("Lustro")).length === 2);
+}
+
+{
+  const { room } = setup();
+  const { asker, others } = roles(room);
+  const [a] = others;
+  room.fivePlayCard(asker, give(asker, "mirror"));
+  room.fivePlayCard(a, give(a, "stink"));
+  room.fiveChoose(asker, a.id);
+  room.fiveStart(asker);
+  check("mirror sends the skunk back: the asked player answers anyway", room.five.answererId === a.id && a.fiveEffects.stink === 0 && asker.fiveEffects.mirror === 0);
+}
+
+{
+  const { room } = setup();
+  const { asker, others } = roles(room);
+  const [a] = others;
+  room.fivePlayCard(asker, give(asker, "mirror"));
+  room.fiveChoose(asker, a.id);
+  room.fivePlayCard(a, give(a, "reverse"));
+  check("mirror sends the reverse back", room.five.answererId === a.id && !room.five.reversed && asker.fiveEffects.mirror === 0);
+}
+
+{
+  const { room } = setup();
+  const { asker, others } = roles(room);
+  const [a, b] = others;
+  room.fivePlayCard(b, give(b, "mirror"));
+  room.fiveChoose(asker, a.id);
+  room.fivePlayCard(a, give(a, "potato"), b.id);
+  check("mirror sends the hot potato back", room.five.answererId === a.id && b.fiveEffects.mirror === 0);
+}
+
+{
+  const { room } = setup(2);
+  const [x, y] = room.players;
+  x.lives = 10;
+  y.fiveEffects.mirror = 6;
+  for (let i = 0; i < 6; i++) room.fivePlayCard(x, give(x, "roulette"));
+  check("mirror turns every roulette hit back on the thrower", y.lives === 3 && x.lives === 4);
+}
+
+{
+  const { room } = setup();
+  const { asker, others } = roles(room);
+  const [a, b] = others;
+  room.fivePlayCard(b, give(b, "torpedo"), a.id);
+  room.fivePlayCard(b, give(b, "english"), a.id);
+  room.fiveChoose(asker, a.id);
+  room.fivePlayCard(a, give(a, "reverse"));
+  check("reverse hands every curse back, torpedo included", a.fiveCurses.includes("torpedo") && a.fiveCurses.includes("english") && room.five.stake === 1);
+}
+
 console.log(failed ? failed + " FAILED" : "ALL PASSED");
 process.exit(failed ? 1 : 0);
