@@ -136,7 +136,7 @@ const video = {
     try {
       await room.connect(response.url, response.token);
     } catch (error) {
-      const limit = /limit/i.test(String(error && error.message));
+      const limit = Boolean(error) && (error.status === 429 || /limit/i.test(String(error.message)));
       toast(limit ? "Kamerki niedostępne: wyczerpany miesięczny limit minut serwera wideo (LiveKit)" : "Nie udało się połączyć z serwerem wideo", true);
       return null;
     }
