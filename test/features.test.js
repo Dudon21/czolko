@@ -107,11 +107,11 @@ function setup(count, mode, extra) {
 
 {
   const { room, ps } = setup(4, "piec", (room, ps) => {
-    for (const type of ["revive", "angel", "ally", "double", "english", "four", "reverse", "letter", "sprint", "vabanque", "bonus", "shield", "mirror", "potato", "thief", "peek", "gag", "draw", "vampire", "roulette"]) room.setFiveCard(ps[0], type, false);
+    for (const type of ["revive", "angel", "ally", "double", "english", "four", "reverse", "letter", "sprint", "vabanque", "bonus", "shield", "mirror", "potato", "thief", "peek", "gag", "draw", "vampire", "roulette", "legend"]) room.setFiveCard(ps[0], type, false);
     room.setSetting(ps[0], "fiveStartCards", 3);
   });
   check("only enabled cards are dealt", ps.every((p) => p.cards.length === 3 && p.cards.every((card) => card.type === "torpedo")));
-  check("view lists disabled cards", room.viewFor(ps[0]).fiveCardsOff.length === 20);
+  check("view lists disabled cards", room.viewFor(ps[0]).fiveCardsOff.length === 21);
   check("non-host cannot toggle", attempt(() => room.setFiveCard(ps[1], "angel", true)) !== true);
   room.setFiveCard(ps[0], "torpedo", false);
   check("all cards off: random gift refused", attempt(() => room.adminGiveCard(ps[0], ps[1].id, "random")) !== true);

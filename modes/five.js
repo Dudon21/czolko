@@ -27,6 +27,7 @@ const FIVE_CARDS = {
   bonus: { icon: "🐢", name: "Dogrywka", text: "Tajna: w swoim następnym pytaniu masz +3 s. Inni zobaczą ją dopiero, gdy zadziała", target: null, when: "before", hidden: true },
   shield: { icon: "🛡️", name: "Tarcza", text: "Tajna: twoja następna porażka nie zabiera życia. Inni zobaczą ją dopiero, gdy zadziała", target: null, when: "any", hidden: true },
   mirror: { icon: "🪞", name: "Lustro", text: "Tajna: następna wredna karta rzucona na ciebie wraca do rzucającego", target: null, when: "any", hidden: true },
+  legend: { icon: "🌟", name: "Legendarna tajna karta", text: "Tajna: wygląda groźnie, ale nic nie robi. Odsłania się, gdy ktoś rzuci na ciebie wredną kartę albo gdy nie zaliczysz", target: null, when: "any", hidden: true, bluff: true },
   potato: { icon: "🥔", name: "Gorący kartofel", text: "Gdy cię pytają (też w trakcie odpowiadania): przerzucasz pytanie na inną osobę, czas leci od nowa", target: "other", when: "mine" },
   thief: { icon: "🥷", name: "Złodziej", text: "Kradniesz losową kartę wskazanej osobie", target: "anyone", when: "any", hostile: true, needsCards: true },
   peek: { icon: "👁️", name: "Podgląd", text: "Widzisz karty wskazanej osoby", target: "anyone", when: "any", needsCards: true },
@@ -130,13 +131,19 @@ const methods = {
   },
 
   fiveResetEffects(player) {
-    player.fiveEffects = { shield: false, mirror: false, bonus: false };
+    player.fiveEffects = Object.fromEntries(HIDDEN_TYPES.map((type) => [type, false]));
     player.fiveGag = 0;
   },
 
-  fiveReveal(player, type, text) {
-    this.fx("fiveCard", { playerId: player.id, targetId: null, card: type, activated: true });
+  fiveReveal(player, type, text, delay = 0) {
+    this.fx("fiveCard", { playerId: player.id, targetId: null, card: type, activated: true, delay });
     this.announce(text);
+  },
+
+  fiveBluff(player, delay) {
+    if (!player || !player.fiveEffects.legend) return;
+    player.fiveEffects.legend = false;
+    this.fiveReveal(player, "legend", `🌟 ${player.nick} odsłania Legendarną tajną kartę… i nic się nie dzieje 😎`, delay);
   },
 
   fiveLoseLife(player, amount) {
@@ -562,6 +569,7 @@ const methods = {
     } else {
       this.announce(`❌ ${name} nie zalicza (${yes}:${no}), −${lost} ❤️${out ? ". Odpada! 💀" : ""}`);
     }
+    if (!passed) this.fiveBluff(answerer, 1500);
     const secondsNow = this.fiveAnswerSeconds();
     if (secondsNow < secondsBefore) this.announce(`⏩ Tempo rośnie! Teraz ${secondsNow} s na odpowiedź`);
     const ghostEvery = this.settings.fiveGhostEvery;
@@ -700,6 +708,7 @@ const methods = {
       this.fiveReveal(target, "mirror", `🪞 Lustro! ${target.nick} odbija kartę „${info.name}” w stronę ${player.nick}`);
     }
     this.announce(text);
+    if (info.hostile && target && target !== player) this.fiveBluff(target, 1700);
     if (type === "vampire" || type === "roulette") {
       this.fiveAfterLives();
       this.changed();

@@ -188,12 +188,37 @@ socket.on("avatar", ({ id, data }) => {
 
 socket.on("event", ({ text }) => toast(text));
 
+const peek = { nick: "", names: [] };
+
 socket.on("five:peek", ({ nick, cards }) => {
-  const names = (cards || []).map((type) => fiveCardInfo(type).icon + " " + fiveCardInfo(type).name);
-  const text = names.length ? names.join(", ") : "nie ma żadnych kart";
-  fx.overlay([el("div", "fx-sub", "👁️ Karty gracza " + nick), el("div", "fx-big", text)], "fx-win", 5000);
-  toast("👁️ " + nick + " ma: " + text);
+  const groups = new Map();
+  for (const type of cards || []) groups.set(type, (groups.get(type) || 0) + 1);
+  const total = (cards || []).length;
+  peek.nick = nick;
+  peek.names = [...groups].map(([type, count]) => fiveCardInfo(type).name + (count > 1 ? " ×" + count : ""));
+  $("peek-title").textContent = "👁️ " + nick + " ma kart: " + total;
+  show($("peek-empty"), total === 0);
+  show($("peek-note"), total > 0);
+  $("peek-cards").replaceChildren(...[...groups].map(([type, count], index) => {
+    const info = fiveCardInfo(type);
+    const row = el("div", "peek-card");
+    const body = el("div", "peek-body");
+    body.append(el("span", "peek-name", info.name), el("span", "peek-text", info.text));
+    row.append(el("span", "peek-number", (index + 1) + "."), el("span", "peek-icon", info.icon), body);
+    if (count > 1) row.appendChild(el("span", "peek-count", "×" + count));
+    return row;
+  }));
+  show($("peek-modal"), true);
 });
+
+$("peek-close").onclick = () => show($("peek-modal"), false);
+
+$("peek-note").onclick = () => {
+  notes.value += (notes.value.trim() ? "\n" : "") + "👁️ " + peek.nick + ": " + peek.names.join(", ");
+  storage.set(NOTES_KEY, notes.value);
+  toast("Dopisane do notatnika");
+  show($("peek-modal"), false);
+};
 
 socket.on("build", (build) => {
   if (!store.build) store.build = build;

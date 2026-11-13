@@ -236,8 +236,12 @@ const fx = {
           break;
         }
         if (event.activated && info) {
-          this.stamp(id, info.icon, "stamp-author");
-          this.overlay([el("div", "fx-sub", "Tajna karta gracza " + nickOf(id) + " działa!"), el("div", "fx-big", info.icon + " " + info.name)], "fx-win", 1800);
+          setTimeout(() => {
+            this.stamp(id, info.icon, "stamp-author");
+            const lines = [el("div", "fx-sub", "Tajna karta gracza " + nickOf(id) + (info.bluff ? " odsłonięta!" : " działa!")), el("div", "fx-big", info.icon + " " + info.name)];
+            if (info.bluff) lines.push(el("div", "fx-sub", "…i nic nie robi 😎"));
+            this.overlay(lines, "fx-win", info.bluff ? 2400 : 1800);
+          }, event.delay || 0);
           break;
         }
         if (info) {

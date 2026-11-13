@@ -193,5 +193,32 @@ const finish = (room, pass) => {
   check("trade refused when every card is off", attempt(() => room.fiveTrade(a, [a.cards[0].id, x])) !== true && a.cards.length === 2);
 }
 
+{
+  const { room, events, effects } = setup();
+  const { asker, others } = roles(room);
+  const [a, b] = others;
+  room.fivePlayCard(a, give(a, "legend"));
+  check("legendary card looks like any secret card", events.filter((text) => text.includes("tajną kartę")).length === 1 && !events.some((text) => text.includes("Legendarn")) && room.viewFor(b).players.find((p) => p.id === a.id).secrets === 1);
+  const before = JSON.stringify([a.lives, a.fiveCurses, b.lives]);
+  room.fivePlayCard(b, give(b, "english"), a.id);
+  check("a nasty card reveals it and it changes nothing", events.some((text) => text.includes("Legendarną")) && !a.fiveEffects.legend && a.fiveCurses.includes("english") && JSON.parse(before)[0] === a.lives);
+  check("reveal is sent as an activated card", effects.some((e) => e.type === "fiveCard" && e.card === "legend" && e.activated));
+  room.fivePlayCard(a, give(a, "legend"));
+  room.fiveChoose(asker, a.id);
+  const lives = a.lives;
+  finish(room, false);
+  check("failing reveals it and the life is still lost", a.lives === lives - 1 && !a.fiveEffects.legend && events.filter((text) => text.includes("Legendarną")).length === 2);
+}
+
+{
+  const { room, events } = setup();
+  const { asker, others } = roles(room);
+  const [a] = others;
+  room.fivePlayCard(a, give(a, "legend"));
+  room.fiveChoose(asker, a.id);
+  finish(room, true);
+  check("passing keeps the legendary card hidden", a.fiveEffects.legend && !events.some((text) => text.includes("Legendarną")));
+}
+
 console.log(failed ? failed + " FAILED" : "ALL PASSED");
 process.exit(failed ? 1 : 0);
