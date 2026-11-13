@@ -60,6 +60,7 @@ function render() {
       : s.mode === "piec"
       ? "Notuj, kto ma jakie karty i kto komu dowalił… Zostaje tylko u ciebie."
       : "Co już wiesz o swoim haśle? Notatki zostają tylko u ciebie.";
+  renderSideCards(s);
   if (s.phase !== "game") {
     store.voteDeadline = 0;
     store.turnDeadline = 0;

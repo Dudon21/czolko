@@ -74,6 +74,41 @@ function fiveWhenText(info) {
   return "Grasz w dowolnym momencie poza czasem na odpowiedź";
 }
 
+const sideUi = { tab: "notes" };
+
+function renderSideCards(s) {
+  const cardsTab = s.mode === "piec" && sideUi.tab === "cards";
+  show($("side-notes"), !cardsTab);
+  show($("side-cards"), cardsTab);
+  $("tab-notes").classList.toggle("selected", !cardsTab);
+  $("tab-cards").classList.toggle("selected", cardsTab);
+  if (!cardsTab) return;
+  const cards = Object.entries(store.fiveCards || {});
+  const off = s.fiveCardsOff || [];
+  const active = cards.filter(([type]) => !off.includes(type));
+  $("side-cards-count").textContent = "W grze: " + active.length + " z " + cards.length + " kart";
+  patchList($("side-cards-list"), JSON.stringify([cards.length, off]), (box) => {
+    const groups = [
+      ["😈 Wredne", active.filter(([, info]) => info.hostile), false],
+      ["🂠 Tajne", active.filter(([, info]) => info.hidden), false],
+      ["✨ Pozostałe", active.filter(([, info]) => !info.hostile && !info.hidden), false],
+      ["🚫 Wyłączone w tej grze", cards.filter(([type]) => off.includes(type)), true]
+    ];
+    for (const [title, list, disabled] of groups) {
+      if (!list.length) continue;
+      box.appendChild(el("p", "side-group", title + " (" + list.length + ")"));
+      for (const [, info] of list) {
+        const row = el("div", "side-card" + (disabled ? " off" : ""));
+        const body = el("div", "side-card-body");
+        body.append(el("span", "side-card-name", info.name), el("span", "side-card-text", info.text));
+        if (!disabled) body.appendChild(el("span", "side-card-when", fiveWhenText(info) + (info.living ? " · duch jej nie zagra" : "")));
+        row.append(el("span", "side-card-icon", info.icon), body);
+        box.appendChild(row);
+      }
+    }
+  });
+}
+
 function renderFiveHand(s, five) {
   const me = findPlayer(s.me.id);
   const cards = me ? me.cards : [];
@@ -276,6 +311,13 @@ $("five-trade").onclick = () => {
   fiveUi.pending = null;
   if (store.state) renderFive(store.state);
 };
+
+for (const tab of ["notes", "cards"]) {
+  $("tab-" + tab).onclick = () => {
+    sideUi.tab = tab;
+    if (store.state) renderSideCards(store.state);
+  };
+}
 
 $("five-target-cancel").onclick = () => {
   fiveUi.pending = null;

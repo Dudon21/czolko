@@ -312,6 +312,97 @@ body:not(.mode-five) .five-only {
   text-align: center;
 }
 
+.side-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.side-tab {
+  flex: 1;
+}
+
+.side-tab.selected {
+  background: var(--yellow);
+  color: #2b2100;
+}
+
+.side-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.side-cards-count {
+  margin: 0 0 8px;
+  font-weight: 800;
+}
+
+.side-cards-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 4px 56px 0;
+}
+
+.side-group {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  font-weight: 800;
+  opacity: 0.8;
+}
+
+.side-group:first-child {
+  margin-top: 0;
+}
+
+.side-card {
+  display: grid;
+  grid-template-columns: 2em 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--label-bg);
+  color: var(--label-text);
+  text-align: left;
+}
+
+.side-card.off {
+  opacity: 0.45;
+}
+
+.side-card-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  text-align: center;
+}
+
+.side-card-name {
+  display: block;
+  font-weight: 800;
+}
+
+.side-card-text {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.25;
+  opacity: 0.85;
+}
+
+.side-card-when {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  opacity: 0.6;
+}
+
 .five-pick-btn {
   min-width: 110px;
   padding: 6px 16px;

@@ -544,11 +544,21 @@
 
       <aside class="card notes">
         <div id="reactions" class="reactions"></div>
-        <div class="notes-header">
-          <h2>Notatnik</h2>
-          <button id="btn-clear-notes" class="btn btn-small">Wyczyść</button>
+        <div class="side-tabs five-only">
+          <button id="tab-notes" class="btn btn-small side-tab selected">📝 Notatnik</button>
+          <button id="tab-cards" class="btn btn-small side-tab">🃏 Karty</button>
         </div>
-        <textarea id="notes" spellcheck="false" placeholder="Co już wiesz o swoim haśle? Notatki zostają tylko u ciebie."></textarea>
+        <div id="side-notes" class="side-pane">
+          <div class="notes-header">
+            <h2>Notatnik</h2>
+            <button id="btn-clear-notes" class="btn btn-small">Wyczyść</button>
+          </div>
+          <textarea id="notes" spellcheck="false" placeholder="Co już wiesz o swoim haśle? Notatki zostają tylko u ciebie."></textarea>
+        </div>
+        <div id="side-cards" class="side-pane side-cards hidden">
+          <p id="side-cards-count" class="side-cards-count"></p>
+          <div id="side-cards-list" class="side-cards-list"></div>
+        </div>
       </aside>
     </div>
   </section>
